@@ -42,41 +42,35 @@
             "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
           }
         }],
-["OS=='win'", {
-    "msvs_settings": {
-        "VCCLCompilerTool": {
-            "AdditionalOptions": [
-                "/std:c++20"
-            ],
-            "ExceptionHandling": 1,
-            "WarningLevel": 2
-        },
-        "VCLinkerTool": {
-            "AdditionalOptions": [
-                "/IGNORE:4006",
-                "/NODEFAULTLIB:libcmt.lib"
-            ]
-        }
-    },
-    "defines": [
-        "RAYLIB_STATIC",
-        "GRAPHICS_API_OPENGL_43",
-        "PLATFORM_DESKTOP"
-    ],
-    "include_dirs": [
-        "C:/vcpkg/installed/x64-windows-static/include"
-    ],
-    "libraries": [
-        "C:/vcpkg_installed/x64-windows-static/lib/raylib.lib",
-        "C:/vcpkg_installed/x64-windows-static/lib/glfw3.lib",
-        "opengl32.lib",
-        "gdi32.lib",
-        "winmm.lib",
-        "Shell32.lib",
-        "User32.lib",
-        "Advapi32.lib"
-    ]
-}]
+        ["OS=='win'", {
+          "msvs_settings": {
+            "VCCLCompilerTool": {
+                "AdditionalOptions": [
+                    "/std:c++20"
+                ],
+                "ExceptionHandling": 1,
+                "WarningLevel": 2
+            }
+          },
+          "defines": [
+            # REMOVED: "RAYLIB_STATIC" - using dynamic linking
+            "GRAPHICS_API_OPENGL_43",
+            "PLATFORM_DESKTOP",
+            "_CRT_SECURE_NO_WARNINGS"
+          ],
+          "include_dirs": [
+            "C:/vcpkg/installed/x64-windows/include"  # Changed to x64-windows
+          ],
+          "libraries": [
+            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",  # Changed to x64-windows
+            "opengl32.lib",
+            "gdi32.lib",
+            "winmm.lib",
+            "Shell32.lib",
+            "User32.lib"
+            # REMOVED: glfw3.lib and Advapi32.lib - not needed for dynamic linking
+          ]
+        }]
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ]
     }
