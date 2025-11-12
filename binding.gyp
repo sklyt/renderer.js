@@ -43,32 +43,21 @@
           }
         }],
         ["OS=='win'", {
-          "msvs_settings": {
-            "VCCLCompilerTool": {
-                "AdditionalOptions": [
-                    "/std:c++20"
-                ],
-                "ExceptionHandling": 1,
-                "WarningLevel": 2
-            }
-          },
-          "defines": [
-            # REMOVED: "RAYLIB_STATIC" - using dynamic linking
-            "GRAPHICS_API_OPENGL_43",
-            "PLATFORM_DESKTOP",
-            "_CRT_SECURE_NO_WARNINGS"
-          ],
-          "include_dirs": [
+                      "include_dirs": [
             "C:/vcpkg/installed/x64-windows/include"  # Changed to x64-windows
           ],
           "libraries": [
-            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",  # Changed to x64-windows
+            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",
             "opengl32.lib",
             "gdi32.lib",
-            "winmm.lib",
-            "Shell32.lib",
-            "User32.lib"
-          ]
+            "winmm.lib"
+          ],
+          "msvs_settings": {
+            "VCCLCompilerTool": { 
+              "ExceptionHandling": 1,
+              "AdditionalOptions": ["/std:c++20"]
+            }
+          }
         }]
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ]
