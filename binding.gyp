@@ -68,7 +68,6 @@
             "winmm.lib",
             "Shell32.lib",
             "User32.lib"
-            # REMOVED: glfw3.lib and Advapi32.lib - not needed for dynamic linking
           ]
         }]
       ],
