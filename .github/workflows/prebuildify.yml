@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2022, macos-latest]
-        node: [20.x]
+        node: [20.x]  # Changed from 18.x to 20.x
 
     steps:
       - name: Checkout repository
@@ -24,9 +24,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Install raylib and dependencies (Linux)
         if: runner.os == 'Linux'
@@ -59,19 +56,11 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat -DisableMetrics
           C:\vcpkg\vcpkg integrate install
-          
-          # Install DYNAMIC version of raylib
           C:\vcpkg\vcpkg install raylib:x64-windows
-          
-          # Create directory structure for dynamic libraries
+
           New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows\lib"
-          New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows\bin"
-          
-          # Copy the dynamic library to expected location
           Copy-Item "C:\vcpkg\installed\x64-windows\lib\raylib.lib" "C:\vcpkg_installed\x64-windows\lib\"
-          Copy-Item "C:\vcpkg\installed\x64-windows\bin\raylib.dll" "C:\vcpkg_installed\x64-windows\bin\"
-          Copy-Item "C:\vcpkg\installed\x64-windows\bin\glfw3.dll" "C:\vcpkg_installed\x64-windows\bin\" -ErrorAction SilentlyContinue
-          
+
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 
       - name: Setup MSVC (Windows)
@@ -97,18 +86,13 @@ jobs:
             sudo make install
             cd ../..
           fi
+      
+      - name: Install dependencies
+        run: npm ci
 
       - name: Generate prebuilds
         run: npx prebuildify --napi --strip
 
-      - name: Copy DLLs to prebuilds (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          echo "Copying DLLs to prebuilds..."
-          cp "C:/vcpkg_installed/x64-windows/bin/raylib.dll" "prebuilds/win32-x64/" || echo "raylib.dll not found"
-          cp "C:/vcpkg_installed/x64-windows/bin/glfw3.dll" "prebuilds/win32-x64/" || echo "glfw3.dll not found"
-          echo "Windows prebuilds contents:"
-          ls -la prebuilds/win32-x64/
 
       - name: Upload prebuild artifacts
         uses: actions/upload-artifact@v4
