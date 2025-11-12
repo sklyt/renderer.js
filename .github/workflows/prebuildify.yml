@@ -56,13 +56,24 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat -DisableMetrics
           C:\vcpkg\vcpkg integrate install
+          
+          # Install static version of raylib
           C:\vcpkg\vcpkg install raylib:x64-windows-static
-
-          New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows\lib"
-          Copy-Item "C:\vcpkg\installed\x64-windows\lib\raylib.lib" "C:\vcpkg_installed\x64-windows\lib\"
-
+          
+          # Create directory structure for static libraries
+          New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows-static\lib"
+          
+          # List available libraries for debugging
+          echo "Available raylib libraries:"
+          Get-ChildItem "C:\vcpkg\installed\x64-windows-static\lib\*raylib*" -Recurse
+          
+          # Copy the static library to expected location
+          Copy-Item "C:\vcpkg\installed\x64-windows-static\lib\raylib.lib" "C:\vcpkg_installed\x64-windows-static\lib\"
+          
+          # Also copy any other required static libraries
+          Copy-Item "C:\vcpkg\installed\x64-windows-static\lib\glfw3.lib" "C:\vcpkg_installed\x64-windows-static\lib\" -ErrorAction SilentlyContinue
+          
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
