@@ -1,8 +1,16 @@
-
+// stub not real
+class Renderer{
+     constructor(){}
+}
 
 
 
 class SharedBuffer {
+    /**
+     * 
+     * @param {Renderer} renderer 
+     * @param {Number} size - buffer size
+     */
     constructor(renderer, size) {
         this.renderer = renderer;
         this.bufferId = renderer.createSharedBuffer(size);

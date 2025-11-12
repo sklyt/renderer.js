@@ -46,11 +46,18 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("step", &RendererWrapper::Step),
                                                            InstanceAccessor("input", &RendererWrapper::GetInput, nullptr),
                                                            InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr),
+                                                           InstanceMethod("setWindowState", &RendererWrapper::SetWindowState)
                                                        });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
 
+    exports.Set("FULLSCREEN", Napi::Number::New(env, WindowFlags::FULLSCREEN));
+    exports.Set("RESIZABLE", Napi::Number::New(env, WindowFlags::RESIZABLE));
+    exports.Set("UNDECORATED", Napi::Number::New(env, WindowFlags::UNDECORATED));
+    exports.Set("ALWAYS_RUN", Napi::Number::New(env, WindowFlags::ALWAYS_RUN));
+    exports.Set("VSYNC_HINT", Napi::Number::New(env, WindowFlags::VSYNC_HINT));
+    exports.Set("MSAA_4X_HINT", Napi::Number::New(env, WindowFlags::MSAA_4X_HINT));
     exports.Set("Renderer", func);
     return exports;
 }

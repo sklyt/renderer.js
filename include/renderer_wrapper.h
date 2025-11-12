@@ -46,6 +46,28 @@ public:
         return Napi::Boolean::New(env, renderer_->IsWindowClosed());
     };
 
+
+    Napi::Value SetWindowState(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (renderer_->IsWindowClosed())
+    {
+        Napi::Error::New(env, "Window not initialized").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected flags (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    unsigned int flags = info[0].As<Napi::Number>().Uint32Value();
+    ::SetWindowState(flags);
+
+    return env.Undefined();
+}
     Napi::Value GetFPS(const Napi::CallbackInfo &info){
                 Napi::Env env = info.Env();
                 return Napi::Number::New(env, renderer_->GetCurrentFPS());
@@ -74,3 +96,14 @@ private:
 
     static Napi::FunctionReference constructor;
 };
+
+
+namespace WindowFlags
+{
+    const int FULLSCREEN = FLAG_FULLSCREEN_MODE;
+    const int RESIZABLE = FLAG_WINDOW_RESIZABLE;
+    const int UNDECORATED = FLAG_WINDOW_UNDECORATED;
+    const int ALWAYS_RUN = FLAG_WINDOW_ALWAYS_RUN;
+    const int VSYNC_HINT = FLAG_VSYNC_HINT;
+    const int MSAA_4X_HINT = FLAG_MSAA_4X_HINT;
+}
