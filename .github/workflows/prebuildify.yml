@@ -45,6 +45,8 @@ jobs:
       - name: Install raylib and dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
+          xcode-select --install || true
+          sudo xcode-select --switch /Library/Developer/CommandLineTools
           brew update
           brew install glfw cmake pkg-config
 
