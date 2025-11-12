@@ -23,7 +23,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: 'npm'
 
+      - name: Install dependencies
+        run: npm ci
 
       - name: Install raylib and dependencies (Linux)
         if: runner.os == 'Linux'
@@ -72,7 +75,7 @@ jobs:
         run: mkdir -p prebuilds
 
       - name: Add build tools
-        run: npm add -D prebuildify@^6 node-gyp-build node-gyp
+        run: npm install --save-dev prebuildify@^6 node-gyp-build node-gyp
 
       - name: Build raylib from source (Linux/macOS fallback)
         if: runner.os != 'Windows'
@@ -89,14 +92,8 @@ jobs:
             cd ../..
           fi
 
-      - name: Install dependencies
-        run: npm install --frozen-lockfile
-
-      - name: Install prebuildify
-        run: npm install -g prebuildify
-
       - name: Generate prebuilds
-        run: npm exec prebuildify --napi --strip
+        run: npx prebuildify --napi --strip
 
       - name: List prebuild artifacts
         run: |
