@@ -48,11 +48,19 @@
             "AdditionalOptions": [
                 "/std:c++20"
             ],
-            "ExceptionHandling": 1
+            "ExceptionHandling": 1,
+            "WarningLevel": 2
+        },
+        "VCLinkerTool": {
+            "AdditionalOptions": [
+                "/IGNORE:4006",
+                "/NODEFAULTLIB:libcmt.lib"
+            ]
         }
     },
     "defines": [
         "RAYLIB_STATIC",
+        "GRAPHICS_API_OPENGL_43",
         "PLATFORM_DESKTOP"
     ],
     "include_dirs": [
@@ -60,10 +68,13 @@
     ],
     "libraries": [
         "C:/vcpkg_installed/x64-windows-static/lib/raylib.lib",
+        "C:/vcpkg_installed/x64-windows-static/lib/glfw3.lib",
         "opengl32.lib",
         "gdi32.lib",
         "winmm.lib",
-        "Shell32.lib"
+        "Shell32.lib",
+        "User32.lib",
+        "Advapi32.lib"
     ]
 }]
       ],
