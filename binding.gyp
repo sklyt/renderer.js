@@ -48,33 +48,23 @@
             "AdditionalOptions": [
                 "/std:c++20"
             ],
-            "ExceptionHandling": 1,
-            "WarningLevel": 2
+            "ExceptionHandling": 1
         }
     },
     "defines": [
         "RAYLIB_STATIC",
-        "GRAPHICS_API_OPENGL_43",
         "PLATFORM_DESKTOP"
     ],
     "include_dirs": [
-        "C:/vcpkg/installed/x64-windows-static/include"  # This path is crucial for finding raylib.h
+        "C:/vcpkg/installed/x64-windows-static/include"
     ],
     "libraries": [
-
         "C:/vcpkg_installed/x64-windows-static/lib/raylib.lib",
-        "C:/vcpkg_installed/x64-windows-static/lib/glfw3.lib",
         "opengl32.lib",
         "gdi32.lib",
         "winmm.lib",
         "Shell32.lib"
-    ],
-    "link_settings": {
-        "libraries": [
-            "-IGNORE:4006",
-            "-NODEFAULTLIB:libcmt.lib"
-        ]
-    }
+    ]
 }]
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ]
