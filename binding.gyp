@@ -58,8 +58,8 @@
             "PLATFORM_DESKTOP"
         ],
         "libraries": [
-            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",
-            "C:/vcpkg_installed/x64-windows/lib/glfw3.lib",
+            "C:/vcpkg_installed/x64-windows-static/lib/raylib.lib",
+            "C:/vcpkg_installed/x64-windows-static/lib/glfw3.lib",
             "opengl32.lib",
             "gdi32.lib",
             "winmm.lib",
