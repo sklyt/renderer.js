@@ -42,20 +42,36 @@
             "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
           }
         }],
-        ["OS=='win'", {
-          "libraries": [
+      ["OS=='win'", {
+        "msvs_settings": {
+            "VCCLCompilerTool": {
+                "AdditionalOptions": [
+                    "/std:c++20"
+                ],
+                "ExceptionHandling": 1,
+                "WarningLevel": 2
+            }
+        },
+        "defines": [
+            "RAYLIB_STATIC",       # Tells raylib headers to compile for static linking
+            "GRAPHICS_API_OPENGL_43", # or another version you need
+            "PLATFORM_DESKTOP"
+        ],
+        "libraries": [
             "C:/vcpkg_installed/x64-windows/lib/raylib.lib",
+            "C:/vcpkg_installed/x64-windows/lib/glfw3.lib",
             "opengl32.lib",
             "gdi32.lib",
-            "winmm.lib"
-          ],
-          "msvs_settings": {
-            "VCCLCompilerTool": { 
-              "ExceptionHandling": 1,
-              "AdditionalOptions": ["/std:c++20"]
-            }
-          }
-        }]
+            "winmm.lib",
+            "Shell32.lib"
+        ],
+        "link_settings": {
+            "libraries": [
+                "-IGNORE:4006", # Suppresses warnings about conflicting library types
+                "-NODEFAULTLIB:libcmt.lib" # May be needed in some cases to resolve CRT conflicts
+            ]
+        }
+    }]
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ]
     }

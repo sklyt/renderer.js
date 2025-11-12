@@ -56,7 +56,7 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat -DisableMetrics
           C:\vcpkg\vcpkg integrate install
-          C:\vcpkg\vcpkg install raylib:x64-windows
+          C:\vcpkg\vcpkg install raylib:x64-windows-static
 
           New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows\lib"
           Copy-Item "C:\vcpkg\installed\x64-windows\lib\raylib.lib" "C:\vcpkg_installed\x64-windows\lib\"
