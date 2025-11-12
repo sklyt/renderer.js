@@ -103,7 +103,9 @@ jobs:
             }
           else
             # Linux/macOS commands
-            find prebuilds -type f 2>/dev/null || echo "No prebuilds found"
+            echo "Contents of prebuilds:"
+            find prebuilds -type f || echo "No prebuilds found"
+
           fi
 
       - name: Upload prebuild artifacts
