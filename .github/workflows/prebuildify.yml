@@ -91,22 +91,6 @@ jobs:
       - name: Generate prebuilds
         run: npx prebuildify --napi --strip
 
-      - name: List prebuild artifacts (Cross-platform)
-        run: |
-          echo "Contents of prebuilds:"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            # Windows PowerShell commands
-            if (Test-Path prebuilds) {
-              Get-ChildItem -Recurse prebuilds | ForEach-Object { $_.FullName }
-            } else {
-              echo "No prebuilds found"
-            }
-          else
-            # Linux/macOS commands
-            echo "Contents of prebuilds:"
-            find prebuilds -type f || echo "No prebuilds found"
-
-          fi
 
       - name: Upload prebuild artifacts
         uses: actions/upload-artifact@v4
