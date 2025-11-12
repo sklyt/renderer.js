@@ -1,0 +1,111 @@
+name: Build & Bundle N-API Renderer Addon
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-prebuilds:
+    name: Build on ${{ matrix.os }} with Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-latest]
+        node: [18.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install raylib and dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libglfw3-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libasound2-dev \
+            libudev-dev
+
+      - name: Install raylib and dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install glfw cmake pkg-config
+
+      - name: Install raylib and dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Install vcpkg and raylib
+          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat -DisableMetrics
+          C:\vcpkg\vcpkg integrate install
+          C:\vcpkg\vcpkg install raylib:x64-windows
+
+          # Create the directory structure expected by binding.gyp
+          New-Item -ItemType Directory -Force -Path "C:\vcpkg_installed\x64-windows\lib"
+          # Copy raylib lib file to expected location
+          Copy-Item "C:\vcpkg\installed\x64-windows\lib\raylib.lib" "C:\vcpkg_installed\x64-windows\lib\"
+
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Prepare prebuild output directory
+        run: mkdir -p prebuilds
+
+      - name: Add build tools
+        run: pnpm add -D prebuildify@^6 node-gyp-build node-gyp
+
+      - name: Build raylib from source (Linux/macOS fallback)
+        if: runner.os != 'Windows'
+        run: |
+          # Try to use system raylib, if not available build from source
+          if ! pkg-config --exists raylib && [ "$RUNNER_OS" != "Windows" ]; then
+            echo "Building raylib from source..."
+            git clone https://github.com/raysan5/raylib.git raylib_src
+            cd raylib_src
+            mkdir build && cd build
+            cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
+            make -j4
+            sudo make install
+            cd ../..
+          fi
+
+      - name: Generate prebuilds
+        run: pnpm exec prebuildify --napi --strip
+
+      - name: List prebuild artifacts
+        run: |
+          echo "Contents of prebuilds:"
+          find prebuilds -type f || echo "No prebuilds found"
+
+      - name: Upload prebuild artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-prebuild-${{ matrix.os }}-node${{ matrix.node }}
+          path: prebuilds/**
