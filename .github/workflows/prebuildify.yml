@@ -24,13 +24,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: latest
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm install --frozen-lockfile
 
       - name: Install raylib and dependencies (Linux)
         if: runner.os == 'Linux'
@@ -79,7 +74,7 @@ jobs:
         run: mkdir -p prebuilds
 
       - name: Add build tools
-        run: pnpm add -D prebuildify@^6 node-gyp-build node-gyp
+        run: npm add -D prebuildify@^6 node-gyp-build node-gyp
 
       - name: Build raylib from source (Linux/macOS fallback)
         if: runner.os != 'Windows'
@@ -97,7 +92,7 @@ jobs:
           fi
 
       - name: Generate prebuilds
-        run: pnpm exec prebuildify --napi --strip
+        run: npm exec prebuildify --napi --strip
 
       - name: List prebuild artifacts
         run: |
