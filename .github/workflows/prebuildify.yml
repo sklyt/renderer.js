@@ -24,8 +24,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - name: Install dependencies
-        run: npm install --frozen-lockfile
 
       - name: Install raylib and dependencies (Linux)
         if: runner.os == 'Linux'
@@ -90,6 +88,12 @@ jobs:
             sudo make install
             cd ../..
           fi
+
+      - name: Install dependencies
+        run: npm install --frozen-lockfile
+
+      - name: Install prebuildify
+        run: npm install -g prebuildify
 
       - name: Generate prebuilds
         run: npm exec prebuildify --napi --strip

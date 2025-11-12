@@ -6,12 +6,15 @@
     "build": "node-gyp configure build",
     "start": "node index.js"
   },
-    "gypfile": true,
+  "gypfile": true,
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
     "node-addon-api": "^8.5.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^12.0.0"
   }
 }
