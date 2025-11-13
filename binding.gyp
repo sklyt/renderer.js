@@ -31,15 +31,23 @@
           "cflags_cc!": ["-fno-exceptions"]
         }],
         ["OS=='mac'", {
-          "libraries": [
-            "-lraylib",
-            "-framework", "OpenGL",
-            "-framework", "Cocoa",
-            "-framework", "IOKit",
-            "-framework", "CoreVideo"
+        "libraries": [
+           "-lraylib"
           ],
-          "xcode_settings": {
-            "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
+          "libraries": [ 
+              "-framework Foundation",
+              "-framework Cocoa",
+              "-framework IOKit",
+              "-framework CoreVideo",
+              "-framework OpenGL"
+          ],
+                    "xcode_settings": {
+                      "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
+                    },
+                    "link_settings": {
+              "library_dirs": [ 
+                  "/System/Library/Frameworks"
+              ]
           }
         }],
         ["OS=='win'", {
