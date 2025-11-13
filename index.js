@@ -1,4 +1,4 @@
-const { Renderer } = require('./build/Release/renderer.node');
+const { Renderer, FULLSCREEN, RESIZABLE } = require('./build/Release/renderer.node');
 const { InputMap, InputBuffer } = require('./input_helpers.js');
 const { utils, Texture, PixelCanvas } = require("./renderer_helpers.js")
 
@@ -10,10 +10,13 @@ if (!renderer.initialize(800, 600, "Renderer")) {
     console.error("Failed to initialize renderer");
     process.exit(1);
 }
+renderer.setWindowState(RESIZABLE)
 const util = new utils(renderer);
 
 
-const noise = util.generateProceduralNoise(600, 800)
+console.log(renderer.width, renderer.height)
+
+const noise = util.generateProceduralNoise(renderer.width, renderer.height)
 /**
  * @type {Texture}
  */
