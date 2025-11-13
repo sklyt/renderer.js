@@ -28,6 +28,7 @@ public:
     Napi::Value LoadTexture(const Napi::CallbackInfo &info);
     Napi::Value UnloadTexture(const Napi::CallbackInfo &info);
     Napi::Value DrawTexture(const Napi::CallbackInfo &info);
+    Napi::Value DrawTexturePro(const Napi::CallbackInfo &info);
 
     // Render target methods
     Napi::Value CreateRenderTexture(const Napi::CallbackInfo &info);

@@ -23,6 +23,7 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("loadTexture", &RendererWrapper::LoadTexture),
                                                            InstanceMethod("unloadTexture", &RendererWrapper::UnloadTexture),
                                                            InstanceMethod("drawTexture", &RendererWrapper::DrawTexture),
+                                                           InstanceMethod("drawTexturePro", &RendererWrapper::DrawTexturePro),
 
                                                            InstanceMethod("createRenderTexture", &RendererWrapper::CreateRenderTexture),
                                                            InstanceMethod("destroyRenderTexture", &RendererWrapper::DestroyRenderTexture),
@@ -759,6 +760,40 @@ Napi::Value RendererWrapper::DrawTextureSized(const Napi::CallbackInfo &info)
     float rotation = 0.0f;
 
     ::DrawTexturePro(texture, srcRec, dstRec, origin, rotation, tint);
+
+    return env.Undefined();
+}
+
+
+Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    // Expect at least textureId, srcPos, srcSize, destPos, destSize
+    if (!renderer_ || info.Length() < 5)
+    {
+        Napi::TypeError::New(env, "drawTexturePro requires textureId, srcPos, srcSize, destPos and destSize").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    // texture id
+    Renderer::TextureId textureId = info[0].As<Napi::Number>().Uint32Value();
+
+ 
+    Vec2 srcPos = ParseVec2(info[1]);
+    Vec2 srcSize = ParseVec2(info[2]);
+    Vec2 destPos = ParseVec2(info[3]);
+    Vec2 destSize = ParseVec2(info[4]);
+
+  
+    Color4 tint(1, 1, 1, 1);
+    if (info.Length() > 5 && !info[5].IsUndefined())
+    {
+        tint = ParseColor(info[5], tint);
+    }
+
+    // call the renderer
+    renderer_->DrawTextureRegion(textureId, srcPos, srcSize, destPos, destSize, tint);
 
     return env.Undefined();
 }
