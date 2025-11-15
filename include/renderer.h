@@ -6,6 +6,7 @@
 #include "vector"
 #include <functional>
 #include "shared_buffer.h"
+#include <thread>
 
 class Color4
 {
@@ -82,9 +83,18 @@ public:
     TextureId GenerateTextureId();
     std::unordered_map<TextureId, Texture2D> textures_;
 
-    int GetCurrentFPS(){
+    int GetCurrentFPS()
+    {
         return ::GetFPS();
     }
+
+    // buffers
+    void SwapAllBuffers();
+    void ProcessBufferUpdates();
+
+    void StartAsyncBufferProcessing();
+    void StopAsyncBufferProcessing();
+
 private:
     int width_;
     int height_;
@@ -101,4 +111,9 @@ private:
 
     std::vector<std::function<void()>> renderCallbacks_;
     Color4 clearColor = Color4(0.2, 0.3, 0.4, 1.0);
+
+    std::atomic<bool> async_processing_{false};
+    std::thread buffer_update_thread_;
+
+    void BufferUpdateThread();
 };

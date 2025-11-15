@@ -280,6 +280,7 @@ void Renderer::RegisterRenderCallback(std::function<void()> callback)
 
 bool Renderer::Step()
 {
+    ProcessBufferUpdates();
     BeginFrame();
     Clear(clearColor);
     for (auto &callback : renderCallbacks_)
@@ -293,3 +294,50 @@ bool Renderer::Step()
 // Buffer 
 
 
+void Renderer::SwapAllBuffers()
+{
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    
+    for (auto& buffer : shared_buffers_) {
+        if (buffer) {
+            buffer->SwapBuffers();
+        }
+    }
+}
+
+
+
+void Renderer::StartAsyncBufferProcessing()
+{
+    if (async_processing_.load()) return;
+    
+    async_processing_.store(true);
+    buffer_update_thread_ = std::thread(&Renderer::BufferUpdateThread, this);
+}
+
+
+void Renderer::StopAsyncBufferProcessing()
+{
+    async_processing_.store(false);
+    if (buffer_update_thread_.joinable()) {
+        buffer_update_thread_.join();
+    }
+}
+
+
+void Renderer::BufferUpdateThread()
+{
+    while (async_processing_.load()) {
+        // process buffer swaps at controlled rate (e.g., 60Hz)
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        
+        SwapAllBuffers();
+    }
+}
+
+
+void Renderer::ProcessBufferUpdates()
+{
+    // manual buffer processing
+    SwapAllBuffers();
+}

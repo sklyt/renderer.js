@@ -7,48 +7,20 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
 {
     Napi::HandleScope scope(env);
 
-    Napi::Function func = DefineClass(env, "Renderer", {
-                                                           // Core lifecycle
-                                                           InstanceMethod("initialize", &RendererWrapper::Initialize),
-                                                           InstanceMethod("shutdown", &RendererWrapper::Shutdown),
-                                                           InstanceMethod("beginFrame", &RendererWrapper::BeginFrame),
-                                                           InstanceMethod("endFrame", &RendererWrapper::EndFrame),
+    Napi::Function func = DefineClass(env, "Renderer", {// Core lifecycle
+                                                        InstanceMethod("initialize", &RendererWrapper::Initialize), InstanceMethod("shutdown", &RendererWrapper::Shutdown), InstanceMethod("beginFrame", &RendererWrapper::BeginFrame), InstanceMethod("endFrame", &RendererWrapper::EndFrame),
 
-                                                           InstanceMethod("clear", &RendererWrapper::Clear),
-                                                           InstanceMethod("drawRectangle", &RendererWrapper::DrawRectangle),
-                                                           InstanceMethod("drawCircle", &RendererWrapper::DrawCircle),
-                                                           InstanceMethod("drawLine", &RendererWrapper::DrawLine),
-                                                           InstanceMethod("drawText", &RendererWrapper::DrawText),
+                                                        InstanceMethod("clear", &RendererWrapper::Clear), InstanceMethod("drawRectangle", &RendererWrapper::DrawRectangle), InstanceMethod("drawCircle", &RendererWrapper::DrawCircle), InstanceMethod("drawLine", &RendererWrapper::DrawLine), InstanceMethod("drawText", &RendererWrapper::DrawText),
 
-                                                           InstanceMethod("loadTexture", &RendererWrapper::LoadTexture),
-                                                           InstanceMethod("unloadTexture", &RendererWrapper::UnloadTexture),
-                                                           InstanceMethod("drawTexture", &RendererWrapper::DrawTexture),
-                                                           InstanceMethod("drawTexturePro", &RendererWrapper::DrawTexturePro),
+                                                        InstanceMethod("loadTexture", &RendererWrapper::LoadTexture), InstanceMethod("unloadTexture", &RendererWrapper::UnloadTexture), InstanceMethod("drawTexture", &RendererWrapper::DrawTexture), InstanceMethod("drawTexturePro", &RendererWrapper::DrawTexturePro),
 
-                                                           InstanceMethod("createRenderTexture", &RendererWrapper::CreateRenderTexture),
-                                                           InstanceMethod("destroyRenderTexture", &RendererWrapper::DestroyRenderTexture),
-                                                           InstanceMethod("setRenderTarget", &RendererWrapper::SetRenderTarget),
+                                                        InstanceMethod("createRenderTexture", &RendererWrapper::CreateRenderTexture), InstanceMethod("destroyRenderTexture", &RendererWrapper::DestroyRenderTexture), InstanceMethod("setRenderTarget", &RendererWrapper::SetRenderTarget),
 
-                                                           InstanceMethod("createSharedBuffer", &RendererWrapper::CreateSharedBuffer),
-                                                           InstanceMethod("markBufferDirty", &RendererWrapper::MarkBufferDirty),
-                                                           InstanceMethod("isBufferDirty", &RendererWrapper::IsBufferDirty),
-                                                           InstanceMethod("getBufferData", &RendererWrapper::GetBufferData),
-                                                           InstanceMethod("updateBufferData", &RendererWrapper::UpdateBufferData),
-                                                           InstanceMethod("updateTextureFromBuffer", &RendererWrapper::UpdateTextureFromBuffer),
+                                                        InstanceMethod("createSharedBuffer", &RendererWrapper::CreateSharedBuffer), InstanceMethod("markBufferDirty", &RendererWrapper::MarkBufferDirty), InstanceMethod("isBufferDirty", &RendererWrapper::IsBufferDirty), InstanceMethod("getBufferData", &RendererWrapper::GetBufferData), InstanceMethod("updateBufferData", &RendererWrapper::UpdateBufferData), InstanceMethod("updateTextureFromBuffer", &RendererWrapper::UpdateTextureFromBuffer),
 
-                                                           InstanceMethod("loadTextureFromBuffer", &RendererWrapper::LoadTextureFromBuffer),
-                                                           InstanceMethod("drawTextureSized", &RendererWrapper::DrawTextureSized),
+                                                        InstanceMethod("loadTextureFromBuffer", &RendererWrapper::LoadTextureFromBuffer), InstanceMethod("drawTextureSized", &RendererWrapper::DrawTextureSized),
 
-                                                           InstanceAccessor("width", &RendererWrapper::GetWidth, nullptr),
-                                                           InstanceAccessor("height", &RendererWrapper::GetHeight, nullptr),
-                                                           InstanceAccessor("targetFPS", nullptr, &RendererWrapper::SetTargetFPS),
-                                                           InstanceAccessor("WindowShouldClose", &RendererWrapper::IsWindowClosed, nullptr),
-                                                           InstanceMethod("onRender", &RendererWrapper::OnRender),
-                                                           InstanceMethod("step", &RendererWrapper::Step),
-                                                           InstanceAccessor("input", &RendererWrapper::GetInput, nullptr),
-                                                           InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr),
-                                                           InstanceMethod("setWindowState", &RendererWrapper::SetWindowState)
-                                                       });
+                                                        InstanceAccessor("width", &RendererWrapper::GetWidth, nullptr), InstanceAccessor("height", &RendererWrapper::GetHeight, nullptr), InstanceAccessor("targetFPS", nullptr, &RendererWrapper::SetTargetFPS), InstanceAccessor("WindowShouldClose", &RendererWrapper::IsWindowClosed, nullptr), InstanceMethod("onRender", &RendererWrapper::OnRender), InstanceMethod("step", &RendererWrapper::Step), InstanceAccessor("input", &RendererWrapper::GetInput, nullptr), InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr), InstanceMethod("setWindowState", &RendererWrapper::SetWindowState)});
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -551,7 +523,7 @@ Napi::Value RendererWrapper::GetBufferData(const Napi::CallbackInfo &info)
     SharedBuffer *buffer = renderer_->shared_buffers_[bufferId];
 
     Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, buffer->GetSize());
-    memcpy(arrayBuffer.Data(), buffer->GetData(), buffer->GetSize());
+    memcpy(arrayBuffer.Data(), buffer->GetReadData(), buffer->GetSize()); // read is always up to date
     return Napi::Uint8Array::New(env, buffer->GetSize(), arrayBuffer, 0);
 }
 
@@ -576,6 +548,13 @@ Napi::Value RendererWrapper::UpdateBufferData(const Napi::CallbackInfo &info)
     }
 
     SharedBuffer *buffer = renderer_->shared_buffers_[bufferId];
+    lock.~lock_guard();
+
+    if (!buffer->TryLockForWrite())
+    {
+        Napi::Error::New(env, "Buffer is currently being written to").ThrowAsJavaScriptException();
+        return env.Null();
+    }
 
     // resize buffer if needed
     if (jsData.ByteLength() != buffer->GetSize())
@@ -583,8 +562,11 @@ Napi::Value RendererWrapper::UpdateBufferData(const Napi::CallbackInfo &info)
         buffer->Resize(jsData.ByteLength());
     }
 
-    memcpy(buffer->GetData(), jsData.Data(), jsData.ByteLength());
-    buffer->MarkDirty();
+    void *writeData = buffer->GetWriteData();
+    memcpy(writeData, jsData.Data(), jsData.ByteLength());
+
+    buffer->MarkDirty(); // for swap to trigger in render
+    buffer->UnlockWrite();
 
     return env.Undefined();
 }
@@ -617,6 +599,7 @@ Napi::Value RendererWrapper::LoadTextureFromBuffer(const Napi::CallbackInfo &inf
     }
 
     SharedBuffer *buffer = renderer_->shared_buffers_[bufferId];
+    lock.~lock_guard();                       // release lock early from here it's duble buffers
     size_t expectedSize = width * height * 4; // RGBA
 
     if (buffer->GetSize() != expectedSize)
@@ -624,10 +607,11 @@ Napi::Value RendererWrapper::LoadTextureFromBuffer(const Napi::CallbackInfo &inf
         Napi::Error::New(env, "Buffer size doesn't match texture dimensions").ThrowAsJavaScriptException();
         return env.Null();
     }
+    buffer->SwapBuffers();
 
     // create texture from buffer data
     Image image = {
-        .data = buffer->GetData(),
+        .data = buffer->GetReadData(),
         .width = width,
         .height = height,
         .mipmaps = 1,
@@ -685,6 +669,7 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
         return env.Null();
     }
 
+    buffer->SwapBuffers();
     // Expect RGBA8 (4 bytes per pixel)
     size_t expectedSize = static_cast<size_t>(texture.width) * static_cast<size_t>(texture.height) * 4;
     if (buffer->GetSize() != expectedSize)
@@ -694,13 +679,12 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
     }
 
     // Update the GPU texture with the buffer data
-    ::UpdateTexture(texture, buffer->GetData());
+    ::UpdateTexture(texture, buffer->GetReadData());
 
     buffer->MarkClean();
 
     return env.Undefined();
 }
-
 
 Napi::Value RendererWrapper::DrawTextureSized(const Napi::CallbackInfo &info)
 {
@@ -764,7 +748,6 @@ Napi::Value RendererWrapper::DrawTextureSized(const Napi::CallbackInfo &info)
     return env.Undefined();
 }
 
-
 Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
@@ -779,13 +762,11 @@ Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
     // texture id
     Renderer::TextureId textureId = info[0].As<Napi::Number>().Uint32Value();
 
- 
     Vec2 srcPos = ParseVec2(info[1]);
     Vec2 srcSize = ParseVec2(info[2]);
     Vec2 destPos = ParseVec2(info[3]);
     Vec2 destSize = ParseVec2(info[4]);
 
-  
     Color4 tint(1, 1, 1, 1);
     if (info.Length() > 5 && !info[5].IsUndefined())
     {
