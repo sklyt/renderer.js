@@ -12,8 +12,10 @@ class SharedBuffer {
      * @param {Number} size - buffer size
      */
     constructor(renderer, size) {
+        console.log(renderer.createSharedBuffer)
         this.renderer = renderer;
-        this.bufferId = renderer.createSharedBuffer(size);
+        console.log("this renderer", this.renderer)
+        this.bufferId = this.renderer.createSharedBuffer(size, 50 , 50);
         this.size = size;
         this.dirty = false;
     }
@@ -88,6 +90,7 @@ class utils {
     }
 
     createSharedBuffer(size) {
+      console.log("crweate shared: ", this.renderer.createSharedBuffer)
         const buffer = new SharedBuffer(this.renderer, size);
         return buffer;
     }

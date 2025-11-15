@@ -13,7 +13,7 @@ if (!renderer.initialize(800, 600, "Renderer")) {
 renderer.setWindowState(RESIZABLE)
 const util = new utils(renderer);
 
-
+console.dir(renderer.createSharedBuffer)
 console.log(renderer.width, renderer.height)
 
 const noise = util.generateProceduralNoise(renderer.width, renderer.height)

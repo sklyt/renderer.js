@@ -82,7 +82,10 @@ public:
     Napi::Value MarkBufferDirty(const Napi::CallbackInfo &info);
     Napi::Value GetBufferData(const Napi::CallbackInfo &info);
     Napi::Value UpdateBufferData(const Napi::CallbackInfo &info);
-
+    Napi::Value MarkBufferRegionDirty(const Napi::CallbackInfo &info);
+    Napi::Value SetBufferDimensions(const Napi::CallbackInfo &info);
+    Napi::Value GetBufferStats(const Napi::CallbackInfo &info);
+    
     Napi::Value LoadTextureFromBuffer(const Napi::CallbackInfo &info);
     Napi::Value UpdateTextureFromBuffer(const Napi::CallbackInfo &info);
     Napi::Value DrawTextureSized(const Napi::CallbackInfo &info);

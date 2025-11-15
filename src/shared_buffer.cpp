@@ -2,8 +2,14 @@
 #include <cstring>
 #include <thread>
 
-SharedBuffer::SharedBuffer(size_t size)
-    : data_(size), dirty_(false), locked_(false), buffers_{std::vector<uint8_t>(size), std::vector<uint8_t>(size)}, write_locked_(false)
+
+
+constexpr float FULL_DIRTY_THRESHOLD = 0.75f;
+constexpr size_t MAX_DIRTY_REGIONS = 64;
+
+
+SharedBuffer::SharedBuffer(size_t size, int width, int height) 
+    : data_(size), buffer_height_(height), buffer_width_(width), dirty_(false), locked_(false), buffers_{std::vector<uint8_t>(size), std::vector<uint8_t>(size)}, write_locked_(false)
 //   last_access_(std::chrono::steady_clock::now())
 {
     if (size > 0)
@@ -56,6 +62,155 @@ void SharedBuffer::MarkDirty()
 void SharedBuffer::MarkClean()
 {
     dirty_.store(false);
+}
+
+
+
+std::vector<DirtyRect> SharedBuffer::GetDirtyRegions() const
+{
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    
+    if (fully_dirty_) {
+        if (buffer_width_ > 0 && buffer_height_ > 0) {
+            return { DirtyRect(0, 0, buffer_width_, buffer_height_) };
+        }
+        // no dimensions set, can't create rect
+        return {};
+    }
+    
+    // copy of dirty regions
+    return dirty_regions_;
+}
+
+void SharedBuffer::ClearDirtyRegions()
+{
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    dirty_regions_.clear();
+    fully_dirty_ = false;
+}
+
+
+void SharedBuffer::MarkRegionDirty(int x, int y, int width, int height)
+{
+
+    if (fully_dirty_) {
+        return;
+    }
+    
+
+    if (buffer_width_ <= 0 || buffer_height_ <= 0) {
+        MarkFullyDirty();
+        return;
+    }
+    
+    // clamp region to buffer bounds
+    if (x < 0) { width += x; x = 0; }
+    if (y < 0) { height += y; y = 0; }
+    if (x + width > buffer_width_) { width = buffer_width_ - x; }
+    if (y + height > buffer_height_) { height = buffer_height_ - y; }
+    
+    // validate result
+    if (width <= 0 || height <= 0) {
+        return; // Invalid region, ignore
+    }
+    
+    DirtyRect new_rect(x, y, width, height);
+    
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    
+
+    dirty_regions_.push_back(new_rect);
+    
+    // optimize if we have too many regions
+    if (dirty_regions_.size() > MAX_DIRTY_REGIONS) {
+        OptimizeDirtyRegions();
+    }
+    
+    float coverage = CalculateDirtyCoverage();
+    if (coverage > FULL_DIRTY_THRESHOLD) {
+        dirty_regions_.clear();
+        fully_dirty_ = true;
+    }
+}
+
+void SharedBuffer::MarkFullyDirty()
+{
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    dirty_regions_.clear();
+    fully_dirty_ = true;
+}
+
+
+void SharedBuffer::OptimizeDirtyRegions()
+{
+    if (dirty_regions_.empty()) {
+        return;
+    }
+    
+    std::vector<DirtyRect> optimized;
+    optimized.reserve(dirty_regions_.size());
+    
+
+    optimized.push_back(dirty_regions_[0]);
+    
+    // try to merge each subsequent region
+    for (size_t i = 1; i < dirty_regions_.size(); ++i) {
+        const DirtyRect& current = dirty_regions_[i];
+        bool merged = false;
+        
+      
+        for (size_t j = 0; j < optimized.size(); ++j) {
+            DirtyRect& existing = optimized[j];
+            
+
+            if (current.Overlaps(existing) || current.IsAdjacent(existing)) {
+                DirtyRect merged_rect = existing.Merge(current);
+                
+                // Only merge if area increase is reasonable
+                // (avoid creating huge rects from small overlaps)
+                int old_area = existing.Area() + current.Area();
+                int new_area = merged_rect.Area();
+                
+                // Allow up to 50% area increase from merge
+                if (new_area <= old_area * 1.5f) {
+                    existing = merged_rect;
+                    merged = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!merged) {
+            optimized.push_back(current);
+        }
+    }
+    
+    dirty_regions_ = std::move(optimized);
+}
+
+float SharedBuffer::CalculateDirtyCoverage() const
+{
+
+    if (fully_dirty_ || buffer_width_ <= 0 || buffer_height_ <= 0) {
+        return 1.0f;
+    }
+    
+    if (dirty_regions_.empty()) {
+        return 0.0f;
+    }
+    
+    
+    int total_area = buffer_width_ * buffer_height_;
+    
+    // Simple approach: sum all dirty areas
+    // (slight overestimation due to overlaps, but fast)
+    int dirty_area = 0;
+    for (const auto& rect : dirty_regions_) {
+        dirty_area += rect.Area();
+    }
+    
+    // cap at 100% to handle overlap overestimation
+    return std::min(1.0f, static_cast<float>(dirty_area) / total_area);
 }
 
 

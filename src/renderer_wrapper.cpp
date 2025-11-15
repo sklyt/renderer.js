@@ -7,20 +7,53 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
 {
     Napi::HandleScope scope(env);
 
-    Napi::Function func = DefineClass(env, "Renderer", {// Core lifecycle
-                                                        InstanceMethod("initialize", &RendererWrapper::Initialize), InstanceMethod("shutdown", &RendererWrapper::Shutdown), InstanceMethod("beginFrame", &RendererWrapper::BeginFrame), InstanceMethod("endFrame", &RendererWrapper::EndFrame),
+    Napi::Function func = DefineClass(env, "Renderer", {
+                                                           // Core lifecycle
+                                                           InstanceMethod("initialize", &RendererWrapper::Initialize),
+                                                           InstanceMethod("shutdown", &RendererWrapper::Shutdown),
+                                                           InstanceMethod("beginFrame", &RendererWrapper::BeginFrame),
+                                                           InstanceMethod("endFrame", &RendererWrapper::EndFrame),
 
-                                                        InstanceMethod("clear", &RendererWrapper::Clear), InstanceMethod("drawRectangle", &RendererWrapper::DrawRectangle), InstanceMethod("drawCircle", &RendererWrapper::DrawCircle), InstanceMethod("drawLine", &RendererWrapper::DrawLine), InstanceMethod("drawText", &RendererWrapper::DrawText),
+                                                           InstanceMethod("clear", &RendererWrapper::Clear),
+                                                           InstanceMethod("drawRectangle", &RendererWrapper::DrawRectangle),
+                                                           InstanceMethod("drawCircle", &RendererWrapper::DrawCircle),
+                                                           InstanceMethod("drawLine", &RendererWrapper::DrawLine),
+                                                           InstanceMethod("drawText", &RendererWrapper::DrawText),
 
-                                                        InstanceMethod("loadTexture", &RendererWrapper::LoadTexture), InstanceMethod("unloadTexture", &RendererWrapper::UnloadTexture), InstanceMethod("drawTexture", &RendererWrapper::DrawTexture), InstanceMethod("drawTexturePro", &RendererWrapper::DrawTexturePro),
+                                                           InstanceMethod("loadTexture", &RendererWrapper::LoadTexture),
+                                                           InstanceMethod("unloadTexture", &RendererWrapper::UnloadTexture),
+                                                           InstanceMethod("drawTexture", &RendererWrapper::DrawTexture),
+                                                           InstanceMethod("drawTexturePro", &RendererWrapper::DrawTexturePro),
 
-                                                        InstanceMethod("createRenderTexture", &RendererWrapper::CreateRenderTexture), InstanceMethod("destroyRenderTexture", &RendererWrapper::DestroyRenderTexture), InstanceMethod("setRenderTarget", &RendererWrapper::SetRenderTarget),
+                                                           InstanceMethod("createRenderTexture", &RendererWrapper::CreateRenderTexture),
+                                                           InstanceMethod("destroyRenderTexture", &RendererWrapper::DestroyRenderTexture),
+                                                           InstanceMethod("setRenderTarget", &RendererWrapper::SetRenderTarget),
 
-                                                        InstanceMethod("createSharedBuffer", &RendererWrapper::CreateSharedBuffer), InstanceMethod("markBufferDirty", &RendererWrapper::MarkBufferDirty), InstanceMethod("isBufferDirty", &RendererWrapper::IsBufferDirty), InstanceMethod("getBufferData", &RendererWrapper::GetBufferData), InstanceMethod("updateBufferData", &RendererWrapper::UpdateBufferData), InstanceMethod("updateTextureFromBuffer", &RendererWrapper::UpdateTextureFromBuffer),
+                                                           InstanceMethod("createSharedBuffer", &RendererWrapper::CreateSharedBuffer),
+                                                           InstanceMethod("markBufferDirty", &RendererWrapper::MarkBufferDirty),
+                                                           InstanceMethod("isBufferDirty", &RendererWrapper::IsBufferDirty),
+                                                           InstanceMethod("getBufferData", &RendererWrapper::GetBufferData),
+                                                           InstanceMethod("updateBufferData", &RendererWrapper::UpdateBufferData),
+                                                           InstanceMethod("updateTextureFromBuffer", &RendererWrapper::UpdateTextureFromBuffer),
 
-                                                        InstanceMethod("loadTextureFromBuffer", &RendererWrapper::LoadTextureFromBuffer), InstanceMethod("drawTextureSized", &RendererWrapper::DrawTextureSized),
+                                                           InstanceMethod("loadTextureFromBuffer", &RendererWrapper::LoadTextureFromBuffer),
+                                                           InstanceMethod("drawTextureSized", &RendererWrapper::DrawTextureSized),
 
-                                                        InstanceAccessor("width", &RendererWrapper::GetWidth, nullptr), InstanceAccessor("height", &RendererWrapper::GetHeight, nullptr), InstanceAccessor("targetFPS", nullptr, &RendererWrapper::SetTargetFPS), InstanceAccessor("WindowShouldClose", &RendererWrapper::IsWindowClosed, nullptr), InstanceMethod("onRender", &RendererWrapper::OnRender), InstanceMethod("step", &RendererWrapper::Step), InstanceAccessor("input", &RendererWrapper::GetInput, nullptr), InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr), InstanceMethod("setWindowState", &RendererWrapper::SetWindowState)});
+                                                           InstanceAccessor("width", &RendererWrapper::GetWidth, nullptr),
+                                                           InstanceAccessor("height", &RendererWrapper::GetHeight, nullptr),
+                                                           InstanceAccessor("targetFPS", nullptr, &RendererWrapper::SetTargetFPS),
+                                                           InstanceAccessor("WindowShouldClose", &RendererWrapper::IsWindowClosed, nullptr),
+                                                           InstanceMethod("onRender", &RendererWrapper::OnRender),
+                                                           InstanceMethod("step", &RendererWrapper::Step),
+                                                           InstanceAccessor("input", &RendererWrapper::GetInput, nullptr),
+                                                           InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr),
+
+                                                           InstanceMethod("setWindowState", &RendererWrapper::SetWindowState),
+                                                           InstanceMethod("markBufferRegionDirty", &RendererWrapper::MarkBufferRegionDirty),
+                                                           InstanceMethod("setBufferDimensions", &RendererWrapper::SetBufferDimensions),
+                                                           InstanceMethod("getBufferStats", &RendererWrapper::GetBufferStats),
+
+                                                       });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -448,8 +481,16 @@ Napi::Value RendererWrapper::CreateSharedBuffer(const Napi::CallbackInfo &info)
 
     size_t size = info[0].As<Napi::Number>().Uint32Value();
 
+    // optional: width and height for dirty region tracking
+    int width = 0, height = 0;
+    if (info.Length() >= 3 && info[1].IsNumber() && info[2].IsNumber())
+    {
+        width = info[1].As<Napi::Number>().Int32Value();
+        height = info[2].As<Napi::Number>().Int32Value();
+    }
+
     std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
-    SharedBuffer *buffer = new SharedBuffer(size);
+    SharedBuffer *buffer = new SharedBuffer(size, width, height);
     renderer_->shared_buffers_.push_back(buffer);
 
     // index act as id
@@ -501,6 +542,102 @@ Napi::Value RendererWrapper::MarkBufferDirty(const Napi::CallbackInfo &info)
     return env.Undefined();
 }
 
+Napi::Value RendererWrapper::MarkBufferRegionDirty(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 5 || !info[0].IsNumber() || !info[1].IsNumber() ||
+        !info[2].IsNumber() || !info[3].IsNumber() || !info[4].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected bufferId, x, y, width, height (numbers)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int bufferId = info[0].As<Napi::Number>().Int32Value();
+    int x = info[1].As<Napi::Number>().Int32Value();
+    int y = info[2].As<Napi::Number>().Int32Value();
+    int width = info[3].As<Napi::Number>().Int32Value();
+    int height = info[4].As<Napi::Number>().Int32Value();
+
+    std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
+    if (bufferId < 0 || bufferId >= static_cast<int>(renderer_->shared_buffers_.size()))
+    {
+        Napi::Error::New(env, "Invalid buffer ID").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    renderer_->shared_buffers_[bufferId]->MarkRegionDirty(x, y, width, height);
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetBufferDimensions(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected bufferId, width, height (numbers)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int bufferId = info[0].As<Napi::Number>().Int32Value();
+    int width = info[1].As<Napi::Number>().Int32Value();
+    int height = info[2].As<Napi::Number>().Int32Value();
+
+    std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
+    if (bufferId < 0 || bufferId >= static_cast<int>(renderer_->shared_buffers_.size()))
+    {
+        Napi::Error::New(env, "Invalid buffer ID").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    renderer_->shared_buffers_[bufferId]->SetDimensions(width, height);
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::GetBufferStats(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected bufferId (number)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int bufferId = info[0].As<Napi::Number>().Int32Value();
+
+    std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
+    if (bufferId < 0 || bufferId >= static_cast<int>(renderer_->shared_buffers_.size()))
+    {
+        Napi::Error::New(env, "Invalid buffer ID").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    SharedBuffer *buffer = renderer_->shared_buffers_[bufferId];
+    std::vector<DirtyRect> regions = buffer->GetDirtyRegions();
+
+    Napi::Object stats = Napi::Object::New(env);
+    stats.Set("dirtyRegionCount", Napi::Number::New(env, regions.size()));
+    stats.Set("isDirty", Napi::Boolean::New(env, buffer->IsDirty()));
+    stats.Set("width", Napi::Number::New(env, buffer->GetWidth()));
+    stats.Set("height", Napi::Number::New(env, buffer->GetHeight()));
+
+    // Calculate total dirty area
+    int total_dirty_pixels = 0;
+    for (const auto &rect : regions)
+    {
+        total_dirty_pixels += rect.Area();
+    }
+    stats.Set("dirtyPixels", Napi::Number::New(env, total_dirty_pixels));
+
+    int total_pixels = buffer->GetWidth() * buffer->GetHeight();
+    float coverage = total_pixels > 0 ? static_cast<float>(total_dirty_pixels) / total_pixels : 0.0f;
+    stats.Set("dirtyCoverage", Napi::Number::New(env, coverage));
+
+    return stats;
+}
+
 Napi::Value RendererWrapper::GetBufferData(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
@@ -540,6 +677,20 @@ Napi::Value RendererWrapper::UpdateBufferData(const Napi::CallbackInfo &info)
     int bufferId = info[0].As<Napi::Number>().Int32Value();
     Napi::Uint8Array jsData = info[1].As<Napi::Uint8Array>();
 
+    bool has_region = false;
+    int region_x = 0, region_y = 0, region_width = 0, region_height = 0;
+
+    if (info.Length() >= 6 &&
+        info[2].IsNumber() && info[3].IsNumber() &&
+        info[4].IsNumber() && info[5].IsNumber())
+    {
+        region_x = info[2].As<Napi::Number>().Int32Value();
+        region_y = info[3].As<Napi::Number>().Int32Value();
+        region_width = info[4].As<Napi::Number>().Int32Value();
+        region_height = info[5].As<Napi::Number>().Int32Value();
+        has_region = true;
+    }
+
     std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
     if (bufferId < 0 || bufferId >= static_cast<int>(renderer_->shared_buffers_.size()))
     {
@@ -557,13 +708,50 @@ Napi::Value RendererWrapper::UpdateBufferData(const Napi::CallbackInfo &info)
     }
 
     // resize buffer if needed
-    if (jsData.ByteLength() != buffer->GetSize())
+    if (!has_region && jsData.ByteLength() != buffer->GetSize())
     {
         buffer->Resize(jsData.ByteLength());
     }
 
     void *writeData = buffer->GetWriteData();
-    memcpy(writeData, jsData.Data(), jsData.ByteLength());
+
+    if (has_region)
+    {
+        int buffer_width = buffer->GetWidth();
+        int bytes_per_pixel = 4; // Assuming RGBA
+
+        if (buffer_width <= 0)
+        {
+            Napi::Error::New(env, "Buffer dimensions not set. Cannot perform region update.").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        if (region_x < 0 || region_y < 0 ||
+            region_x + region_width > buffer_width ||
+            region_y + region_height > buffer->GetHeight())
+        {
+            Napi::Error::New(env, "Region out of bounds").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        uint8_t *dest = static_cast<uint8_t *>(writeData);
+        const uint8_t *src = jsData.Data();
+
+        for (int row = 0; row < region_height; ++row)
+        {
+            int dest_offset = ((region_y + row) * buffer_width + region_x) * bytes_per_pixel;
+            int src_offset = row * region_width * bytes_per_pixel;
+            memcpy(dest + dest_offset, src + src_offset, region_width * bytes_per_pixel);
+        }
+
+        // Mark only the updated region as dirty
+        buffer->MarkRegionDirty(region_x, region_y, region_width, region_height);
+    }
+    else
+    {
+        memcpy(writeData, jsData.Data(), jsData.ByteLength());
+        buffer->MarkFullyDirty();
+    }
 
     buffer->MarkDirty(); // for swap to trigger in render
     buffer->UnlockWrite();
@@ -678,8 +866,48 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
         return env.Null();
     }
 
-    // Update the GPU texture with the buffer data
-    ::UpdateTexture(texture, buffer->GetReadData());
+    std::vector<DirtyRect> dirty_regions = buffer->GetDirtyRegions();
+
+    if (dirty_regions.empty())
+    {
+        // cause if full dirty there exist one region
+        buffer->MarkClean();
+        return env.Undefined();
+    }
+
+    const void *data = buffer->GetReadData();
+    const uint8_t *pixel_data = static_cast<const uint8_t *>(data);
+
+
+    for (const auto &region : dirty_regions)
+    {
+        if (!region.IsValid())
+            continue;
+
+        // calculate offset into buffer for this region
+        Rectangle rect = {
+            static_cast<float>(region.x),
+            static_cast<float>(region.y),
+            static_cast<float>(region.width),
+            static_cast<float>(region.height)};
+
+        // extract region data
+        std::vector<uint8_t> region_data(region.width * region.height * 4);
+
+        for (int row = 0; row < region.height; ++row)
+        {
+            int src_offset = ((region.y + row) * texture.width + region.x) * 4;
+            int dst_offset = row * region.width * 4;
+            memcpy(region_data.data() + dst_offset,
+                   pixel_data + src_offset,
+                   region.width * 4);
+        }
+
+        // Update only this rectangle on GPU
+        ::UpdateTextureRec(texture, rect, region_data.data());
+    }
+
+    // ::UpdateTexture(texture, buffer->GetReadData());
 
     buffer->MarkClean();
 
