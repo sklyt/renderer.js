@@ -58,12 +58,6 @@ void SharedBuffer::MarkClean()
     dirty_.store(false);
 }
 
-void SharedBuffer::Resize(size_t new_size)
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    data_.resize(new_size);
-    dirty_.store(true);
-}
 
 /**
  * keep checking if we can write with 100ms sleep in between if timeout > 0, basically trying to acquire a lock

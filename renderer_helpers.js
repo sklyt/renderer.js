@@ -227,10 +227,11 @@ class utils {
 
 
 class PixelCanvas {
-    constructor(renderer, width, height) {
+    constructor(coordsSystem, renderer, width, height) {
         this.renderer = renderer;
         this.width = width;
         this.height = height;
+        this.coords = coordsSystem
 
         this.bufferSize = width * height * 4;
         this.sharedBuffer = new SharedBuffer(renderer, this.bufferSize);
@@ -547,12 +548,12 @@ class InputManager {
         });
         
         // Mouse buttons
-        this.renderer.input.onMouseDown((event) => {
+        this.renderer.input.onMouseDown(0,(event) => {
             this.mouseState.buttons.add(event.button);
             this.mouseState.pressedThisFrame.add(event.button);
         });
         
-        this.renderer.input.onMouseUp((event) => {
+        this.renderer.input.onMouseUp(0, (event) => {
             this.mouseState.buttons.delete(event.button);
             this.mouseState.releasedThisFrame.add(event.button);
         });

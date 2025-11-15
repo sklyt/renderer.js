@@ -38,7 +38,6 @@ public:
 
 private:
     std::vector<unsigned char> data_;
-    std::atomic<bool> dirty_;
     std::mutex mutex_;
     std::atomic<bool> locked_;
     bool use_external_;
@@ -49,7 +48,7 @@ private:
     std::atomic<bool> dirty_{false};        // write buffer has new data
     std::atomic<bool> write_locked_{false}; // write buffer is being written to
 
-\
+
     std::mutex swap_mutex_;
     std::condition_variable swap_cv_;
 
