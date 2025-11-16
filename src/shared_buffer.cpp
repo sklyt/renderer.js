@@ -234,7 +234,7 @@ float SharedBuffer::CalculateDirtyCoverage() const
 /**
  * keep checking if we can write with 100ms sleep in between if timeout > 0, basically trying to acquire a lock
  */
-bool SharedBuffer::TryLockForWrite(int timeout_ms = 0)
+bool SharedBuffer::TryLockForWrite(int timeout_ms)
 {
     bool expected = false;
 
