@@ -150,13 +150,6 @@ void SharedBuffer::MarkRegionDirty(int x, int y, int width, int height)
 void SharedBuffer::MarkFullyDirty()
 {
     std::lock_guard<std::mutex> lock(dirty_mutex_);
-    size_t buffer_size = buffers_[0].size();
-    if (buffer_size > 0)
-    {
-        memcpy(buffers_[write_index_.load()].data(),
-               buffers_[read_index_.load()].data(),
-               buffer_size);
-    }
     dirty_regions_.clear();
     fully_dirty_ = true;
 }
@@ -241,7 +234,7 @@ float SharedBuffer::CalculateDirtyCoverage() const
 /**
  * keep checking if we can write with 100ms sleep in between if timeout > 0, basically trying to acquire a lock
  */
-bool SharedBuffer::TryLockForWrite(int timeout_ms)
+bool SharedBuffer::TryLockForWrite(int timeout_ms = 0)
 {
     bool expected = false;
 
@@ -290,13 +283,15 @@ bool SharedBuffer::SwapBuffers()
     // Copy dirty regions from write to read buffer BEFORE swap
     // so the new write buffer has the latest data
     // TODO: consider tripple buffering
-    if (!dirty_regions_.empty() && buffer_width_ > 0 && buffer_height_ > 0)
+    std::vector<DirtyRect> regions_to_copy = GetDirtyRegions();
+
+    if (!regions_to_copy.empty() && buffer_width_ > 0 && buffer_height_ > 0)
     {
         uint8_t *src = buffers_[current_write].data();
         uint8_t *dst = buffers_[current_read].data();
         int bytes_per_pixel = 4; // RGBA
 
-        for (const auto &region : dirty_regions_)
+        for (const auto &region : regions_to_copy)
         {
             for (int row = 0; row < region.height; ++row)
             {
@@ -306,13 +301,12 @@ bool SharedBuffer::SwapBuffers()
             }
         }
     }
-
     read_index_.store(current_write);
     write_index_.store(current_read);
 
     dirty_.store(false);
     swap_count_.fetch_add(1);
-
+    ClearDirtyRegions();
     return true;
 }
 
