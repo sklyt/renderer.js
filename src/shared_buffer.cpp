@@ -283,24 +283,24 @@ bool SharedBuffer::SwapBuffers()
     // Copy dirty regions from write to read buffer BEFORE swap
     // so the new write buffer has the latest data
     // TODO: consider tripple buffering
-    std::vector<DirtyRect> regions_to_copy = GetDirtyRegions();
+    // std::vector<DirtyRect> regions_to_copy = GetDirtyRegions();
 
-    if (!regions_to_copy.empty() && buffer_width_ > 0 && buffer_height_ > 0)
-    {
-        uint8_t *src = buffers_[current_write].data();
-        uint8_t *dst = buffers_[current_read].data();
-        int bytes_per_pixel = 4; // RGBA
+    // if (!regions_to_copy.empty() && buffer_width_ > 0 && buffer_height_ > 0)
+    // {
+    //     uint8_t *src = buffers_[current_write].data();
+    //     uint8_t *dst = buffers_[current_read].data();
+    //     int bytes_per_pixel = 4; // RGBA
 
-        for (const auto &region : regions_to_copy)
-        {
-            for (int row = 0; row < region.height; ++row)
-            {
-                int offset = ((region.y + row) * buffer_width_ + region.x) * bytes_per_pixel;
-                int row_bytes = region.width * bytes_per_pixel;
-                memcpy(dst + offset, src + offset, row_bytes);
-            }
-        }
-    }
+    //     for (const auto &region : regions_to_copy)
+    //     {
+    //         for (int row = 0; row < region.height; ++row)
+    //         {
+    //             int offset = ((region.y + row) * buffer_width_ + region.x) * bytes_per_pixel;
+    //             int row_bytes = region.width * bytes_per_pixel;
+    //             memcpy(dst + offset, src + offset, row_bytes);
+    //         }
+    //     }
+    // }
     read_index_.store(current_write);
     write_index_.store(current_read);
 

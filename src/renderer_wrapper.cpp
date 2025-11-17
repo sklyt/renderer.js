@@ -857,7 +857,7 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
         return env.Null();
     }
 
-    buffer->SwapBuffers();
+
     // Expect RGBA8 (4 bytes per pixel)
     size_t expectedSize = static_cast<size_t>(texture.width) * static_cast<size_t>(texture.height) * 4;
     if (buffer->GetSize() != expectedSize)
@@ -867,7 +867,7 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
     }
 
     std::vector<DirtyRect> dirty_regions = buffer->GetDirtyRegions();
-
+    buffer->SwapBuffers();
     if (dirty_regions.empty())
     {
         // cause if full dirty there exist one region
@@ -876,6 +876,7 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
     }
 
     const void *data = buffer->GetReadData();
+    // const void *data = buffer->GetWriteData(); // DEBUG: use write directly w/o swapping
     const uint8_t *pixel_data = static_cast<const uint8_t *>(data);
 
 
