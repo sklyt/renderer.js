@@ -3,6 +3,7 @@
 #include "renderer.h"
 #include "vector"
 #include "input_wrapper.h"
+#include <iostream>
 
 class RendererWrapper : public Napi::ObjectWrap<RendererWrapper>
 {
@@ -47,31 +48,66 @@ public:
         return Napi::Boolean::New(env, renderer_->IsWindowClosed());
     };
 
+    void onResize(const Napi::CallbackInfo &info, const Napi::Value &value)
+    {
+        Napi::Env env = info.Env();
+
+        if (!value.IsFunction())
+        {
+            Napi::Error::New(env, "Expected Function Type for OnResize callback").ThrowAsJavaScriptException();
+            return;
+        }
+
+        Napi::Function callback = value.As<Napi::Function>();
+
+        auto persistentCallback = std::make_shared<Napi::FunctionReference>(
+            Napi::Persistent(callback));
+
+        // std::cout << "set func on resize" << std::endl;
+        renderer_->onResize_ = [persistentCallback](int width, int height)
+        {
+            Napi::Env env = persistentCallback->Env();
+            Napi::HandleScope scope(env); // ensure a scope for V8 handles
+
+            try
+            {
+                Napi::Object eventObj = Napi::Object::New(env);
+                eventObj.Set("width", Napi::Number::New(env, width));
+                eventObj.Set("height", Napi::Number::New(env, height));
+                persistentCallback->Call({eventObj});
+            }
+            catch (const Napi::Error &e)
+            {
+                std::cerr << "Error in JS resize callback: " << e.Message() << std::endl;
+            }
+        };
+    }
 
     Napi::Value SetWindowState(const Napi::CallbackInfo &info)
-{
-    Napi::Env env = info.Env();
-
-    if (renderer_->IsWindowClosed())
     {
-        Napi::Error::New(env, "Window not initialized").ThrowAsJavaScriptException();
-        return env.Null();
-    }
+        Napi::Env env = info.Env();
 
-    if (info.Length() < 1 || !info[0].IsNumber())
+        if (renderer_->IsWindowClosed())
+        {
+            Napi::Error::New(env, "Window not initialized").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        if (info.Length() < 1 || !info[0].IsNumber())
+        {
+            Napi::TypeError::New(env, "Expected flags (number) argument").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        unsigned int flags = info[0].As<Napi::Number>().Uint32Value();
+        ::SetWindowState(flags);
+
+        return env.Undefined();
+    }
+    Napi::Value GetFPS(const Napi::CallbackInfo &info)
     {
-        Napi::TypeError::New(env, "Expected flags (number) argument").ThrowAsJavaScriptException();
-        return env.Null();
-    }
-
-    unsigned int flags = info[0].As<Napi::Number>().Uint32Value();
-    ::SetWindowState(flags);
-
-    return env.Undefined();
-}
-    Napi::Value GetFPS(const Napi::CallbackInfo &info){
-                Napi::Env env = info.Env();
-                return Napi::Number::New(env, renderer_->GetCurrentFPS());
+        Napi::Env env = info.Env();
+        return Napi::Number::New(env, renderer_->GetCurrentFPS());
     }
     void HandleRenderCallback();
 
@@ -85,7 +121,7 @@ public:
     Napi::Value MarkBufferRegionDirty(const Napi::CallbackInfo &info);
     Napi::Value SetBufferDimensions(const Napi::CallbackInfo &info);
     Napi::Value GetBufferStats(const Napi::CallbackInfo &info);
-    
+
     Napi::Value LoadTextureFromBuffer(const Napi::CallbackInfo &info);
     Napi::Value UpdateTextureFromBuffer(const Napi::CallbackInfo &info);
     Napi::Value DrawTextureSized(const Napi::CallbackInfo &info);
@@ -94,13 +130,13 @@ private:
     std::unique_ptr<Renderer> renderer_;
     std::vector<Napi::FunctionReference> renderCallbacks_;
     Napi::ObjectReference inputWrapper_;
+
     // Helper methods
     static Color4 ParseColor(const Napi::Value &colorValue, const Color4 &defaultColor = Color4(0.1f, 0.1f, 0.1f, 1.0f));
     static Vec2 ParseVec2(const Napi::Value &vecValue, const Vec2 &defaultVec = Vec2(0, 0));
 
     static Napi::FunctionReference constructor;
 };
-
 
 namespace WindowFlags
 {

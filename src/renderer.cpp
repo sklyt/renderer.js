@@ -35,7 +35,11 @@ void Renderer::UpdateSizeIfNeeded()
     {
         width_ = GetScreenWidth();
         height_ = GetScreenHeight();
-        std::cout << "Window resized: " << width_ << "x" << height_ << std::endl;
+
+        if(onResize_){
+            onResize_(width_, height_);
+        }
+
     }
 }
 
@@ -280,9 +284,10 @@ void Renderer::RegisterRenderCallback(std::function<void()> callback)
 
 bool Renderer::Step()
 {
+    UpdateSizeIfNeeded();
     ProcessBufferUpdates();
     BeginFrame();
-    Clear(clearColor);
+    // Clear(clearColor);
     for (auto &callback : renderCallbacks_)
     {
         callback();

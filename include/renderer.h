@@ -7,6 +7,11 @@
 #include <functional>
 #include "shared_buffer.h"
 #include <thread>
+#include "napi.h"
+
+
+using onReziseCallback = std::function<void(int width, int height)>;
+
 
 class Color4
 {
@@ -95,6 +100,8 @@ public:
     void StartAsyncBufferProcessing();
     void StopAsyncBufferProcessing();
 
+    onReziseCallback onResize_;
+    
 private:
     int width_;
     int height_;
@@ -114,6 +121,8 @@ private:
 
     std::atomic<bool> async_processing_{false};
     std::thread buffer_update_thread_;
+
+
 
     void BufferUpdateThread();
 };

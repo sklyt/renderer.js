@@ -44,6 +44,7 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceAccessor("targetFPS", nullptr, &RendererWrapper::SetTargetFPS),
                                                            InstanceAccessor("WindowShouldClose", &RendererWrapper::IsWindowClosed, nullptr),
                                                            InstanceMethod("onRender", &RendererWrapper::OnRender),
+                                                           InstanceAccessor("onResize", nullptr, &RendererWrapper::onResize),
                                                            InstanceMethod("step", &RendererWrapper::Step),
                                                            InstanceAccessor("input", &RendererWrapper::GetInput, nullptr),
                                                            InstanceAccessor("FPS", &RendererWrapper::GetFPS, nullptr),
