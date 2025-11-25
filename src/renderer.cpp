@@ -107,6 +107,51 @@ void Renderer::DrawText(const std::string &text, const Vec2 &pos, int fontSize, 
     ::DrawText(text.c_str(), (int)pos.x, (int)pos.y, fontSize, color.ToRaylib());
 }
 
+// img 
+
+
+Renderer::ImageData Renderer::LoadImageFromFile(const std::string& path) {
+    ImageData result;
+    result.success = false;
+    
+  
+    Image image = ::LoadImage(path.c_str());
+    
+    if (image.data == NULL) {
+        std::cerr << "Failed to load image: " << path << std::endl;
+        return result;
+    }
+    
+
+    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    
+
+    result.width = image.width;
+    result.height = image.height;
+    result.format = image.format;
+    
+
+    int dataSize = image.width * image.height * 4; // 4 bytes per pixel (RGBA)
+    result.data.resize(dataSize);
+    
+ 
+    memcpy(result.data.data(), image.data, dataSize);
+    
+  
+    ::UnloadImage(image);
+    
+    result.success = true;
+    return result;
+}
+
+void Renderer::UnloadImageData(ImageData& imageData) {
+    imageData.data.clear();
+    imageData.width = 0;
+    imageData.height = 0;
+    imageData.format = 0;
+    imageData.success = false;
+}
+
 // Texture management
 Renderer::TextureId Renderer::GenerateTextureId()
 {

@@ -126,6 +126,9 @@ public:
     Napi::Value UpdateTextureFromBuffer(const Napi::CallbackInfo &info);
     Napi::Value DrawTextureSized(const Napi::CallbackInfo &info);
 
+    Napi::Value LoadImage(const Napi::CallbackInfo &info);
+    Napi::Value UnloadImage(const Napi::CallbackInfo &info);
+
 private:
     std::unique_ptr<Renderer> renderer_;
     std::vector<Napi::FunctionReference> renderCallbacks_;

@@ -53,6 +53,8 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("markBufferRegionDirty", &RendererWrapper::MarkBufferRegionDirty),
                                                            InstanceMethod("setBufferDimensions", &RendererWrapper::SetBufferDimensions),
                                                            InstanceMethod("getBufferStats", &RendererWrapper::GetBufferStats),
+                                                               InstanceMethod("loadImage", &RendererWrapper::LoadImage),
+                                                             InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
 
                                                        });
 
@@ -123,6 +125,63 @@ Napi::Value RendererWrapper::EndFrame(const Napi::CallbackInfo &info)
         renderer_->EndFrame();
     }
     return info.Env().Undefined();
+}
+
+// img
+
+Napi::Value RendererWrapper::LoadImage(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected path (string) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string path = info[0].As<Napi::String>().Utf8Value();
+
+    // Load image data
+    Renderer::ImageData imageData = renderer_->LoadImageFromFile(path);
+
+    if (!imageData.success)
+    {
+        Napi::Error::New(env, "Failed to load image: " + path).ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    // Create result object with image data and metadata
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("width", Napi::Number::New(env, imageData.width));
+    result.Set("height", Napi::Number::New(env, imageData.height));
+    result.Set("format", Napi::Number::New(env, imageData.format));
+
+    // Create ArrayBuffer from image data
+    Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, imageData.data.size());
+    memcpy(arrayBuffer.Data(), imageData.data.data(), imageData.data.size());
+
+    // Create Uint8Array view of the buffer
+    Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, imageData.data.size(), arrayBuffer, 0);
+    result.Set("data", uint8Array);
+
+    // Store a reference to the image data for cleanup (optional)
+    // You could implement a cleanup system if needed
+
+    return result;
+}
+
+Napi::Value RendererWrapper::UnloadImage(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    // In the current implementation, image data is managed by JavaScript
+    // and will be garbage collected automatically. This method is provided
+    // for future use if manual memory management is needed.
+
+    // If you implement an image cache system, you would use this method
+    // to remove images from the cache.
+
+    return env.Undefined();
 }
 
 // Drawing methods
@@ -858,7 +917,6 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
         return env.Null();
     }
 
-
     // Expect RGBA8 (4 bytes per pixel)
     size_t expectedSize = static_cast<size_t>(texture.width) * static_cast<size_t>(texture.height) * 4;
     if (buffer->GetSize() != expectedSize)
@@ -879,7 +937,6 @@ Napi::Value RendererWrapper::UpdateTextureFromBuffer(const Napi::CallbackInfo &i
     const void *data = buffer->GetReadData();
     // const void *data = buffer->GetWriteData(); // DEBUG: use write directly w/o swapping
     const uint8_t *pixel_data = static_cast<const uint8_t *>(data);
-
 
     for (const auto &region : dirty_regions)
     {

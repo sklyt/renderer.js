@@ -9,9 +9,7 @@
 #include <thread>
 #include "napi.h"
 
-
 using onReziseCallback = std::function<void(int width, int height)>;
-
 
 class Color4
 {
@@ -43,6 +41,18 @@ class Renderer
 public:
     Renderer();
     ~Renderer();
+
+    struct ImageData
+    {
+        std::vector<uint8_t> data;
+        int width;
+        int height;
+        int format; // Raylib PixelFormat
+        bool success;
+    };
+
+    ImageData LoadImageFromFile(const std::string &path);
+    void UnloadImageData(ImageData &imageData);
 
     // Core lifecycle
     bool Initialize(int width, int height, const char *title);
@@ -101,7 +111,7 @@ public:
     void StopAsyncBufferProcessing();
 
     onReziseCallback onResize_;
-    
+
 private:
     int width_;
     int height_;
@@ -121,8 +131,6 @@ private:
 
     std::atomic<bool> async_processing_{false};
     std::thread buffer_update_thread_;
-
-
 
     void BufferUpdateThread();
 };
