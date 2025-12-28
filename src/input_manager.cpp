@@ -408,6 +408,120 @@ void InputManager::InitializeKeyMappings()
         keyNameToCode_[name] = keyCode;
         keyCodeToName_[keyCode] = name;
     }
+
+    // Punctuation keys
+    keyNameToCode_[","] = KEY_COMMA;
+    keyCodeToName_[KEY_COMMA] = ",";
+
+    keyNameToCode_["."] = KEY_PERIOD;
+    keyCodeToName_[KEY_PERIOD] = ".";
+
+    keyNameToCode_["/"] = KEY_SLASH;
+    keyCodeToName_[KEY_SLASH] = "/";
+
+    keyNameToCode_[";"] = KEY_SEMICOLON;
+    keyCodeToName_[KEY_SEMICOLON] = ";";
+
+    keyNameToCode_["'"] = KEY_APOSTROPHE;
+    keyCodeToName_[KEY_APOSTROPHE] = "'";
+
+    keyNameToCode_["["] = KEY_LEFT_BRACKET;
+    keyCodeToName_[KEY_LEFT_BRACKET] = "[";
+
+    keyNameToCode_["]"] = KEY_RIGHT_BRACKET;
+    keyCodeToName_[KEY_RIGHT_BRACKET] = "]";
+
+    keyNameToCode_["\\"] = KEY_BACKSLASH;
+    keyCodeToName_[KEY_BACKSLASH] = "\\";
+
+    keyNameToCode_["-"] = KEY_MINUS;
+    keyCodeToName_[KEY_MINUS] = "-";
+
+    keyNameToCode_["="] = KEY_EQUAL;
+    keyCodeToName_[KEY_EQUAL] = "=";
+
+    keyNameToCode_["`"] = KEY_GRAVE;
+    keyCodeToName_[KEY_GRAVE] = "`";
+
+    // Additional special keys
+    keyNameToCode_["Insert"] = KEY_INSERT;
+    keyCodeToName_[KEY_INSERT] = "Insert";
+
+    keyNameToCode_["Delete"] = KEY_DELETE;
+    keyCodeToName_[KEY_DELETE] = "Delete";
+
+    keyNameToCode_["Home"] = KEY_HOME;
+    keyCodeToName_[KEY_HOME] = "Home";
+
+    keyNameToCode_["End"] = KEY_END;
+    keyCodeToName_[KEY_END] = "End";
+
+    keyNameToCode_["PageUp"] = KEY_PAGE_UP;
+    keyCodeToName_[KEY_PAGE_UP] = "PageUp";
+
+    keyNameToCode_["PageDown"] = KEY_PAGE_DOWN;
+    keyCodeToName_[KEY_PAGE_DOWN] = "PageDown";
+
+    keyNameToCode_["CapsLock"] = KEY_CAPS_LOCK;
+    keyCodeToName_[KEY_CAPS_LOCK] = "CapsLock";
+
+    keyNameToCode_["ScrollLock"] = KEY_SCROLL_LOCK;
+    keyCodeToName_[KEY_SCROLL_LOCK] = "ScrollLock";
+
+    keyNameToCode_["NumLock"] = KEY_NUM_LOCK;
+    keyCodeToName_[KEY_NUM_LOCK] = "NumLock";
+
+    keyNameToCode_["PrintScreen"] = KEY_PRINT_SCREEN;
+    keyCodeToName_[KEY_PRINT_SCREEN] = "PrintScreen";
+
+    keyNameToCode_["Pause"] = KEY_PAUSE;
+    keyCodeToName_[KEY_PAUSE] = "Pause";
+
+    // Right modifier keys
+    keyNameToCode_["RightShift"] = KEY_RIGHT_SHIFT;
+    keyCodeToName_[KEY_RIGHT_SHIFT] = "RightShift";
+
+    keyNameToCode_["RightControl"] = KEY_RIGHT_CONTROL;
+    keyCodeToName_[KEY_RIGHT_CONTROL] = "RightControl";
+
+    keyNameToCode_["RightAlt"] = KEY_RIGHT_ALT;
+    keyCodeToName_[KEY_RIGHT_ALT] = "RightAlt";
+
+    keyNameToCode_["RightSuper"] = KEY_RIGHT_SUPER;
+    keyCodeToName_[KEY_RIGHT_SUPER] = "RightSuper";
+
+    // Keypad keys
+    for (int i = 0; i <= 9; i++)
+    {
+        std::string name = "Keypad" + std::to_string(i);
+        int keyCode = KEY_KP_0 + i;
+        keyNameToCode_[name] = keyCode;
+        keyCodeToName_[keyCode] = name;
+    }
+
+    keyNameToCode_["KeypadDecimal"] = KEY_KP_DECIMAL;
+    keyCodeToName_[KEY_KP_DECIMAL] = "KeypadDecimal";
+
+    keyNameToCode_["KeypadDivide"] = KEY_KP_DIVIDE;
+    keyCodeToName_[KEY_KP_DIVIDE] = "KeypadDivide";
+
+    keyNameToCode_["KeypadMultiply"] = KEY_KP_MULTIPLY;
+    keyCodeToName_[KEY_KP_MULTIPLY] = "KeypadMultiply";
+
+    keyNameToCode_["KeypadSubtract"] = KEY_KP_SUBTRACT;
+    keyCodeToName_[KEY_KP_SUBTRACT] = "KeypadSubtract";
+
+    keyNameToCode_["KeypadAdd"] = KEY_KP_ADD;
+    keyCodeToName_[KEY_KP_ADD] = "KeypadAdd";
+
+    keyNameToCode_["KeypadEnter"] = KEY_KP_ENTER;
+    keyCodeToName_[KEY_KP_ENTER] = "KeypadEnter";
+
+    keyNameToCode_["KeypadEqual"] = KEY_KP_EQUAL;
+    keyCodeToName_[KEY_KP_EQUAL] = "KeypadEqual";
+
+    keyNameToCode_["Menu"] = KEY_KB_MENU;
+    keyCodeToName_[KEY_KB_MENU] = "Menu";
 }
 
 std::string InputManager::GetKeyName(int keyCode) const
