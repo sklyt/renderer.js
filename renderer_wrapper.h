@@ -42,7 +42,6 @@ public:
     Napi::Value GetWidth(const Napi::CallbackInfo &info);
     Napi::Value GetHeight(const Napi::CallbackInfo &info);
     Napi::Value GetInput(const Napi::CallbackInfo &info);
-    Napi::Value GetAudio(const Napi::CallbackInfo &info);
     void SetTargetFPS(const Napi::CallbackInfo &info, const Napi::Value &value);
     Napi::Value IsWindowClosed(const Napi::CallbackInfo &info)
     {

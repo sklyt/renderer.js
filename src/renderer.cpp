@@ -2,6 +2,8 @@
 #include <iostream>
 #include <filesystem>
 #include "input_manager.h"
+#include "audio_manager.h"
+#include <debugger.h>
 
 Renderer::Renderer() : width_(0), height_(0), initialized_(false),
                        nextTextureId_(1), nextRenderTextureId_(1000000),
@@ -36,10 +38,10 @@ void Renderer::UpdateSizeIfNeeded()
         width_ = GetScreenWidth();
         height_ = GetScreenHeight();
 
-        if(onResize_){
+        if (onResize_)
+        {
             onResize_(width_, height_);
         }
-
     }
 }
 
@@ -56,8 +58,14 @@ bool Renderer::Initialize(int width, int height, const char *title)
         return false;
     }
 
+    if (!AudioManager::Instance().Initialize())
+    {
+        Debugger::Instance().LogError("Failed to initialize audio manager");
+        return false;
+    }
+
     initialized_ = true;
-    std::cout << "Renderer initialized: " << width << "x" << height << std::endl;
+     Debugger::Instance().LogInfo("Renderer initialized:" + std::to_string(width)  + "x" + std::to_string(height));
     return true;
 }
 
@@ -107,44 +115,40 @@ void Renderer::DrawText(const std::string &text, const Vec2 &pos, int fontSize, 
     ::DrawText(text.c_str(), (int)pos.x, (int)pos.y, fontSize, color.ToRaylib());
 }
 
-// img 
+// img
 
-
-Renderer::ImageData Renderer::LoadImageFromFile(const std::string& path) {
+Renderer::ImageData Renderer::LoadImageFromFile(const std::string &path)
+{
     ImageData result;
     result.success = false;
-    
-  
+
     Image image = ::LoadImage(path.c_str());
-    
-    if (image.data == NULL) {
+
+    if (image.data == NULL)
+    {
         std::cerr << "Failed to load image: " << path << std::endl;
         return result;
     }
-    
 
     ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    
 
     result.width = image.width;
     result.height = image.height;
     result.format = image.format;
-    
 
     int dataSize = image.width * image.height * 4; // 4 bytes per pixel (RGBA)
     result.data.resize(dataSize);
-    
- 
+
     memcpy(result.data.data(), image.data, dataSize);
-    
-  
+
     ::UnloadImage(image);
-    
+
     result.success = true;
     return result;
 }
 
-void Renderer::UnloadImageData(ImageData& imageData) {
+void Renderer::UnloadImageData(ImageData &imageData)
+{
     imageData.data.clear();
     imageData.width = 0;
     imageData.height = 0;
@@ -320,12 +324,10 @@ Vec2 Renderer::GetRenderTextureSize(TextureId id) const
 
 // Utility for steping thru the renderer(usually for games) it's a single call vs multiple from
 
-
 void Renderer::RegisterRenderCallback(std::function<void()> callback)
 {
     renderCallbacks_.push_back(callback);
 }
-
 
 bool Renderer::Step()
 {
@@ -341,50 +343,49 @@ bool Renderer::Step()
     return !IsWindowClosed();
 }
 
-// Buffer 
-
+// Buffer
 
 void Renderer::SwapAllBuffers()
 {
     std::lock_guard<std::mutex> lock(buffers_mutex_);
-    
-    for (auto& buffer : shared_buffers_) {
-        if (buffer) {
+
+    for (auto &buffer : shared_buffers_)
+    {
+        if (buffer)
+        {
             buffer->SwapBuffers();
         }
     }
 }
 
-
-
 void Renderer::StartAsyncBufferProcessing()
 {
-    if (async_processing_.load()) return;
-    
+    if (async_processing_.load())
+        return;
+
     async_processing_.store(true);
     buffer_update_thread_ = std::thread(&Renderer::BufferUpdateThread, this);
 }
 
-
 void Renderer::StopAsyncBufferProcessing()
 {
     async_processing_.store(false);
-    if (buffer_update_thread_.joinable()) {
+    if (buffer_update_thread_.joinable())
+    {
         buffer_update_thread_.join();
     }
 }
 
-
 void Renderer::BufferUpdateThread()
 {
-    while (async_processing_.load()) {
+    while (async_processing_.load())
+    {
         // process buffer swaps at controlled rate (e.g., 60Hz)
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        
+
         SwapAllBuffers();
     }
 }
-
 
 void Renderer::ProcessBufferUpdates()
 {

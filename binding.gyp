@@ -10,7 +10,9 @@
         "src/debug/debugger_wrapper.cpp",
         "src/debug/debugger.cpp",
         "src/input_wrapper.cpp",
-        "src/shared_buffer.cpp"
+        "src/shared_buffer.cpp",
+        "src/audio_manager.cpp",
+        "src/audio_wrapper.cpp"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
