@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
+#include <iostream>
 #include <io.h>
 #include <fcntl.h>
 #include "console_control.h"
