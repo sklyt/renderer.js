@@ -1,5 +1,19 @@
 #include "renderer_wrapper.h"
 #include <iostream>
+#ifdef _WIN32
+  #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <windows.h>
+#else
+  #include <unistd.h>
+  #include <fcntl.h>
+  #include <sys/stat.h>
+  #include <sys/types.h>
+  #include <cstdio>
+  #include <cstdlib>
+  #include <errno.h>
+#endif
 
 Napi::FunctionReference RendererWrapper::constructor;
 
@@ -54,8 +68,10 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("markBufferRegionDirty", &RendererWrapper::MarkBufferRegionDirty),
                                                            InstanceMethod("setBufferDimensions", &RendererWrapper::SetBufferDimensions),
                                                            InstanceMethod("getBufferStats", &RendererWrapper::GetBufferStats),
-                                                               InstanceMethod("loadImage", &RendererWrapper::LoadImage),
-                                                             InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+                                                           InstanceMethod("loadImage", &RendererWrapper::LoadImage),
+                                                           InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+                                                           InstanceMethod("showConsole", &RendererWrapper::ShowConsole),
+                                                           InstanceMethod("hideConsole", &RendererWrapper::HideConsole),
 
                                                        });
 
@@ -1047,6 +1063,89 @@ Napi::Value RendererWrapper::DrawTextureSized(const Napi::CallbackInfo &info)
     ::DrawTexturePro(texture, srcRec, dstRec, origin, rotation, tint);
 
     return env.Undefined();
+}
+
+// Cross-platform console control
+Napi::Value RendererWrapper::ShowConsole(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+#ifdef _WIN32
+    // If there is no console, alloc one; then show it
+    HWND hwnd = GetConsoleWindow();
+    if (!hwnd)
+    {
+        if (!AllocConsole())
+        {
+            return Napi::Boolean::New(env, false);
+        }
+        hwnd = GetConsoleWindow();
+    }
+    ShowWindow(hwnd, SW_SHOW);
+    // Rebind C stdio streams to the console so printf works
+    FILE *conin = nullptr, *conout = nullptr;
+    freopen_s(&conin, "CONIN$", "r", stdin);
+    freopen_s(&conout, "CONOUT$", "w", stdout);
+    freopen_s(&conout, "CONOUT$", "w", stderr);
+    return Napi::Boolean::New(env, true);
+#else
+    // POSIX: attempt to reopen controlling terminal (/dev/tty)
+    FILE *tty = fopen("/dev/tty", "r+");
+    if (!tty)
+    {
+        // No tty available to attach to
+        return Napi::Boolean::New(env, false);
+    }
+    // Rebind stdout/stderr to the tty
+    fflush(stdout);
+    fflush(stderr);
+    int fd = fileno(tty);
+    if (fd < 0)
+    {
+        fclose(tty);
+        return Napi::Boolean::New(env, false);
+    }
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    // Keep the FILE* open if you want; we'll close the FILE* handle.
+    fclose(tty);
+    return Napi::Boolean::New(env, true);
+#endif
+}
+
+Napi::Value RendererWrapper::HideConsole(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+#ifdef _WIN32
+    HWND hwnd = GetConsoleWindow();
+    if (hwnd)
+    {
+        ShowWindow(hwnd, SW_HIDE);
+        return Napi::Boolean::New(env, true);
+    }
+    // no console to hide
+    return Napi::Boolean::New(env, false);
+#else
+    // POSIX: detach from tty and redirect stdout/stderr to /dev/null
+    // Create new session so we won't be a process group leader for a tty
+    if (setsid() == -1)
+    {
+        // Not fatal — continue to try redirection
+    }
+
+    FILE *devnull = fopen("/dev/null", "w");
+    if (!devnull)
+    {
+        return Napi::Boolean::New(env, false);
+    }
+
+    // Redirect standard streams (note: stdin left alone)
+    fflush(stdout);
+    fflush(stderr);
+    dup2(fileno(devnull), STDOUT_FILENO);
+    dup2(fileno(devnull), STDERR_FILENO);
+    // keep devnull open (will be closed on process exit)
+    return Napi::Boolean::New(env, true);
+#endif
 }
 
 Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
