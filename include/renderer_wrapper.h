@@ -131,10 +131,6 @@ public:
     Napi::Value LoadImage(const Napi::CallbackInfo &info);
     Napi::Value UnloadImage(const Napi::CallbackInfo &info);
 
-    // Console control
-    Napi::Value ShowConsole(const Napi::CallbackInfo &info);
-    Napi::Value HideConsole(const Napi::CallbackInfo &info);
-
 private:
     std::unique_ptr<Renderer> renderer_;
     std::vector<Napi::FunctionReference> renderCallbacks_;

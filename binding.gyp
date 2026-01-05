@@ -19,7 +19,26 @@
         "<(module_root_dir)/include"
       ],
       "conditions": [
+        ["OS=='win'", {
+          "sources": [ "src/console_win.cpp" ],
+          "include_dirs": [
+            "C:/vcpkg/installed/x64-windows/include"
+          ],
+          "libraries": [
+            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",
+            "opengl32.lib",
+            "gdi32.lib",
+            "winmm.lib"
+          ],
+          "msvs_settings": {
+            "VCCLCompilerTool": { 
+              "ExceptionHandling": 1,
+              "AdditionalOptions": ["/std:c++20"]
+            }
+          }
+        }],
         ["OS=='linux'", {
+          "sources": [ "src/console_posix.cpp" ],
           "libraries": [
             "-lraylib",
             "-lGL",
@@ -33,40 +52,22 @@
           "cflags_cc!": ["-fno-exceptions"]
         }],
         ["OS=='mac'", {
-        "libraries": [
-           "-lraylib"
-          ],
+          "sources": [ "src/console_posix.cpp" ],
           "libraries": [ 
+              "-lraylib",
               "-framework Foundation",
               "-framework Cocoa",
               "-framework IOKit",
               "-framework CoreVideo",
               "-framework OpenGL"
           ],
-                    "xcode_settings": {
-                      "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
-                    },
-                    "link_settings": {
-              "library_dirs": [ 
-                  "/System/Library/Frameworks"
-              ]
-          }
-        }],
-        ["OS=='win'", {
-                      "include_dirs": [
-            "C:/vcpkg/installed/x64-windows/include"  # Changed to x64-windows
-          ],
-          "libraries": [
-            "C:/vcpkg_installed/x64-windows/lib/raylib.lib",
-            "opengl32.lib",
-            "gdi32.lib",
-            "winmm.lib"
-          ],
-          "msvs_settings": {
-            "VCCLCompilerTool": { 
-              "ExceptionHandling": 1,
-              "AdditionalOptions": ["/std:c++20"]
-            }
+          "xcode_settings": {
+            "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-frtti", "-fexceptions"]
+          },
+          "link_settings": {
+            "library_dirs": [ 
+                "/System/Library/Frameworks"
+            ]
           }
         }]
       ],
