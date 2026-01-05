@@ -7,8 +7,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "console_control.h"
-
-using namespace ConsoleControl;
+namespace ConsoleControl {
 
 Napi::Value HideConsole(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -52,5 +51,5 @@ Napi::Value ShowConsole(const Napi::CallbackInfo &info) {
   fclose(tty);
   return Napi::Boolean::New(env, true);
 }
-
+}
 #endif // !_WIN32
