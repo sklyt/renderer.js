@@ -55,10 +55,14 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("markBufferRegionDirty", &RendererWrapper::MarkBufferRegionDirty),
                                                            InstanceMethod("setBufferDimensions", &RendererWrapper::SetBufferDimensions),
                                                            InstanceMethod("getBufferStats", &RendererWrapper::GetBufferStats),
-                                                               InstanceMethod("loadImage", &RendererWrapper::LoadImage),
-                                                             InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+                                                           InstanceMethod("loadImage", &RendererWrapper::LoadImage),
+                                                           InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+                                                           InstanceMethod("ClearColor", &RendererWrapper::SetClearColor),
 
-                                                           });
+                                                           // migrating to zero copy
+                                                           InstanceMethod("initSharedBuffers", &RendererWrapper::InitSharedBuffers),
+
+                                                       });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -70,16 +74,142 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
     exports.Set("VSYNC_HINT", Napi::Number::New(env, WindowFlags::VSYNC_HINT));
     exports.Set("MSAA_4X_HINT", Napi::Number::New(env, WindowFlags::MSAA_4X_HINT));
     exports.Set("Renderer", func);
-    
+
     // Console control functions
     exports.Set("hideConsole", Napi::Function::New(env, ConsoleControl::HideConsole));
     exports.Set("showConsole", Napi::Function::New(env, ConsoleControl::ShowConsole));
-    
+
     return exports;
 }
 
 RendererWrapper::RendererWrapper(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<RendererWrapper>(info), renderer_(std::make_unique<Renderer>()) {}
+
+// migrate to shared buffer
+
+Napi::Value RendererWrapper::InitSharedBuffers(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 4)
+    {
+        Napi::Error::New(env, "Need 4 ArrayBuffers: pixel0, pixel1, pixel2, control").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    // Create new SharedBufferRefs instance
+    SharedBufferRefs *refs = new SharedBufferRefs();
+    refs->buffer_size = 0;
+    refs->control = nullptr;
+    refs->pixel_buffers[0] = refs->pixel_buffers[1] = refs->pixel_buffers[2] = nullptr;
+    refs->width = info[4].As<Napi::Number>().Uint32Value();  // set appropriately
+    refs->height = info[5].As<Napi::Number>().Uint32Value(); // set appropriately
+
+    // Pixel buffers (args 0..2)
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!info[i].IsArrayBuffer())
+        {
+            delete refs;
+            Napi::Error::New(env, "Args 0-2 must be ArrayBuffers").ThrowAsJavaScriptException();
+            return env.Undefined();
+        }
+        Napi::ArrayBuffer pixelbuffer = info[i].As<Napi::ArrayBuffer>();
+        void *p = pixelbuffer.Data();
+        refs->pixel_buffers[i] = static_cast<uint8_t *>(p);
+        refs->refs[i] = Napi::Reference<Napi::ArrayBuffer>::New(pixelbuffer, 1);
+
+        if (i == 0)
+        {
+            refs->buffer_size = pixelbuffer.ByteLength();
+            // Optional: validate expected size matches width*height*4
+            size_t expected = static_cast<size_t>(refs->width) * refs->height * 4u;
+            if (refs->buffer_size != expected)
+            {
+                // clean up
+                refs->refs[0].Reset();
+                delete refs;
+                Napi::Error::New(env, "Pixel0 buffer size doesn't match expected texture size").ThrowAsJavaScriptException();
+                return env.Undefined();
+            }
+        }
+    }
+
+    // control buffer (arg 3)
+    if (!info[3].IsArrayBuffer())
+    {
+        // cleanup references we've set
+        for (int i = 0; i < 3; ++i)
+            if (!refs->refs[i].IsEmpty())
+                refs->refs[i].Reset();
+        delete refs;
+        Napi::TypeError::New(env, "Arg 3 must be an ArrayBuffer").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    Napi::ArrayBuffer control = info[3].As<Napi::ArrayBuffer>();
+    size_t control_size = control.ByteLength();
+    if (control_size < 4116)
+    {
+        for (int i = 0; i < 3; ++i)
+            if (!refs->refs[i].IsEmpty())
+                refs->refs[i].Reset();
+        delete refs;
+        Napi::Error::New(env, "Control buffer must be at least 4116 bytes").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    void *control_ptr = control.Data();
+    if (reinterpret_cast<uintptr_t>(control_ptr) % alignof(std::atomic<uint32_t>) != 0)
+    {
+        for (int i = 0; i < 3; ++i)
+            if (!refs->refs[i].IsEmpty())
+                refs->refs[i].Reset();
+        delete refs;
+        Napi::Error::New(env, "Control buffer is not properly aligned for atomic access").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    refs->control = static_cast<uint32_t *>(control_ptr);
+    refs->refs[3] = Napi::Reference<Napi::ArrayBuffer>::New(control, 1);
+
+    // initialize control buffer state (atomic)
+    {
+        std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(refs->control);
+        ctrl[CTRL_JS_WRITE_IDX].store(0u, std::memory_order_relaxed);
+        ctrl[CTRL_CPP_READ_IDX].store(1u, std::memory_order_relaxed);
+        ctrl[CTRL_GPU_RENDER_IDX].store(2u, std::memory_order_relaxed);
+        ctrl[CTRL_DIRTY_FLAG].store(0u, std::memory_order_relaxed);
+        ctrl[CTRL_DIRTY_COUNT].store(0u, std::memory_order_relaxed);
+    }
+
+    // create raylib texture from pixel buffer 0
+    Image image;
+    image.data = refs->pixel_buffers[0]; // NOTE: raylib will NOT own this pointer
+    image.width = refs->width;
+    image.height = refs->height;
+    image.mipmaps = 1;
+    image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+
+    // Create texture (make a copy into GPU memory)
+    Texture2D texture = LoadTextureFromImage(image);
+
+    Renderer::TextureId texId = renderer_->GenerateTextureId();
+    {
+        std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
+        renderer_->textures_.emplace(texId, texture);
+
+        // store the texture id in the refs and push refs into the vector
+        refs->texture_id = texId;
+        renderer_->shared_buffers_ref.push_back(refs);
+    }
+
+    renderer_->buffers_initialized_ = true;
+
+    // return the bufferRefId = index into the vector
+    size_t bufferRefId = renderer_->shared_buffers_ref.size() - 1;
+    return Napi::Number::New(env, static_cast<double>(bufferRefId));
+}
 
 // Core lifecycle methods
 Napi::Value RendererWrapper::Initialize(const Napi::CallbackInfo &info)
@@ -191,6 +321,7 @@ Napi::Value RendererWrapper::UnloadImage(const Napi::CallbackInfo &info)
     return env.Undefined();
 }
 
+
 // Drawing methods
 Napi::Value RendererWrapper::Clear(const Napi::CallbackInfo &info)
 {
@@ -204,6 +335,7 @@ Napi::Value RendererWrapper::Clear(const Napi::CallbackInfo &info)
 
     if (renderer_)
     {
+       
         renderer_->Clear(color);
     }
     return env.Undefined();
@@ -1054,8 +1186,6 @@ Napi::Value RendererWrapper::DrawTextureSized(const Napi::CallbackInfo &info)
 
     return env.Undefined();
 }
-
-
 
 Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
 {

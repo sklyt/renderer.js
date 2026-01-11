@@ -30,6 +30,15 @@ private:
     Napi::Value IsMusicPlaying(const Napi::CallbackInfo &info);
     Napi::Value UnloadMusic(const Napi::CallbackInfo &info);
 
+    // Audio streaming
+    Napi::Value CreateAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value UpdateAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value PlayAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value StopAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value PauseAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value ResumeAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value UnloadAudioStream(const Napi::CallbackInfo &info);
+    Napi::Value IsAudioStreamProcessed(const Napi::CallbackInfo &info);
 
      Napi::Value SetMasterVolume(const Napi::CallbackInfo& info);
     Napi::Value GetMasterVolume(const Napi::CallbackInfo& info);

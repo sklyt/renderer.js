@@ -29,6 +29,27 @@ Renderer::~Renderer()
         UnloadRenderTexture(kv.second);
     }
     internalRenderTextures_.clear();
+
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    for (SharedBufferRefs *s : shared_buffers_ref)
+    {
+        if (!s)
+            continue;
+        for (int i = 0; i < 4; ++i)
+        {
+            if (!s->refs[i].IsEmpty())
+                s->refs[i].Reset();
+        }
+        // if raylib texture exists, unload it:
+        auto it = textures_.find(s->texture_id);
+        if (it != textures_.end())
+        {
+            ::UnloadTexture(it->second);
+            textures_.erase(it);
+        }
+        delete s;
+    }
+    shared_buffers_ref.clear();
 }
 
 void Renderer::UpdateSizeIfNeeded()
@@ -65,7 +86,7 @@ bool Renderer::Initialize(int width, int height, const char *title)
     }
 
     initialized_ = true;
-     Debugger::Instance().LogInfo("Renderer initialized:" + std::to_string(width)  + "x" + std::to_string(height));
+    Debugger::Instance().LogInfo("Renderer initialized:" + std::to_string(width) + "x" + std::to_string(height));
     return true;
 }
 
@@ -334,7 +355,7 @@ bool Renderer::Step()
     UpdateSizeIfNeeded();
     ProcessBufferUpdates();
     BeginFrame();
-    // Clear(clearColor);
+    Clear(clearColor);
     for (auto &callback : renderCallbacks_)
     {
         callback();
@@ -345,17 +366,170 @@ bool Renderer::Step()
 
 // Buffer
 
-void Renderer::SwapAllBuffers()
+void Renderer::SwapBuffers(size_t bufRefId)
 {
     std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s)
+        return;
 
-    for (auto &buffer : shared_buffers_)
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
+    uint32_t dirty = ctrl[CTRL_DIRTY_FLAG].load(std::memory_order_acquire);
+    if (dirty == 0)
+        return;
+
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_relaxed);
+    uint32_t cpp_read = ctrl[CTRL_CPP_READ_IDX].load(std::memory_order_relaxed);
+    uint32_t gpu_render = ctrl[CTRL_GPU_RENDER_IDX].load(std::memory_order_relaxed);
+
+    uint32_t new_gpu = cpp_read;
+    uint32_t new_ready = js_write;
+    uint32_t new_write = gpu_render;
+
+    // process dirty regions for the buffer that JS wrote into (js_write)
+    ProcessDirtyRegions(bufRefId, js_write);
+
+    // rotate indices
+    ctrl[CTRL_GPU_RENDER_IDX].store(new_gpu, std::memory_order_relaxed);
+    ctrl[CTRL_CPP_READ_IDX].store(new_ready, std::memory_order_relaxed);
+    ctrl[CTRL_JS_WRITE_IDX].store(new_write, std::memory_order_release);
+
+    // Clear dirty flag AFTER swapping
+    ctrl[CTRL_DIRTY_FLAG].store(0u, std::memory_order_release);
+}
+
+// renderer.cpp
+void Renderer::ProcessDirtyRegions(size_t bufRefId, uint32_t buffer_idx)
+{
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+        return;
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
+    uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
+    uint8_t *pixel_data = s->pixel_buffers[buffer_idx];
+
+    // retrieve texture by id
+    auto it = textures_.find(s->texture_id);
+    if (it == textures_.end())
     {
-        if (buffer)
-        {
-            buffer->SwapBuffers();
-        }
+        // no texture, nothing to upload
+        return;
     }
+
+    Texture2D &texture = it->second;
+
+    if (dirty_count == 0)
+    {
+        // no regions => upload entire buffer
+        UploadEntireBuffer(bufRefId, buffer_idx);
+        return;
+    }
+
+    if (dirty_count > MAX_DIRTY_REGIONS)
+        dirty_count = MAX_DIRTY_REGIONS;
+
+    for (uint32_t i = 0; i < dirty_count; ++i)
+    {
+        uint32_t offset = CTRL_DIRTY_REGIONS + (i * 4);
+        uint32_t x = ctrl[offset + 0].load(std::memory_order_relaxed);
+        uint32_t y = ctrl[offset + 1].load(std::memory_order_relaxed);
+        uint32_t w = ctrl[offset + 2].load(std::memory_order_relaxed);
+        uint32_t h = ctrl[offset + 3].load(std::memory_order_relaxed);
+
+        if (w == 0 || h == 0)
+            continue;
+        UploadRegionToGPU(s->texture_id, pixel_data, x, y, w, h, s->width, s->height);
+    }
+
+    // Clear dirty count after processing
+    ctrl[CTRL_DIRTY_COUNT].store(0u, std::memory_order_release);
+}
+
+// Upload a rectangle region for given texture id.
+// pixel_data points to the full RGBA8 pixel buffer (width*height*4).
+void Renderer::UploadRegionToGPU(TextureId texId, uint8_t *pixel_data,
+                                 uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                                 uint32_t fullWidth, uint32_t fullHeight)
+{
+    if (w == 0 || h == 0)
+        return;
+
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    auto it = textures_.find(texId);
+    if (it == textures_.end())
+        return;
+    Texture2D &texture = it->second;
+
+    // clamp rect inside texture bounds
+    if (x >= fullWidth || y >= fullHeight)
+        return;
+    if (x + w > fullWidth)
+        w = fullWidth - x;
+    if (y + h > fullHeight)
+        h = fullHeight - y;
+
+    size_t regionSize = static_cast<size_t>(w) * h * 4u;
+    std::vector<uint8_t> region_data;
+    region_data.resize(regionSize);
+
+    // copy scanlines
+    for (uint32_t row = 0; row < h; ++row)
+    {
+        const uint8_t *src = pixel_data + ((static_cast<size_t>(y + row) * fullWidth + x) * 4u);
+        uint8_t *dst = region_data.data() + (static_cast<size_t>(row) * w * 4u);
+        memcpy(dst, src, static_cast<size_t>(w) * 4u);
+    }
+
+    Rectangle rect = {static_cast<float>(x),
+                      static_cast<float>(y),
+                      static_cast<float>(w),
+                      static_cast<float>(h)};
+
+    // Update only this rect on GPU
+    ::UpdateTextureRec(texture, rect, region_data.data());
+}
+
+// Upload entire buffer
+void Renderer::UploadEntireBuffer(size_t bufRefId, uint32_t buffer_idx)
+{
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s)
+        return;
+
+    uint8_t *pixel_data = s->pixel_buffers[buffer_idx];
+    auto it = textures_.find(s->texture_id);
+    if (it == textures_.end())
+        return;
+    Texture2D &texture = it->second;
+
+    // full upload: UpdateTexture expects pointer to full RGBA buffer
+    ::UpdateTexture(texture, pixel_data);
+}
+
+void Renderer::SwapAllBuffers()
+{
+
+    // for (auto &buffer : shared_buffers_)
+    // {
+    //     if (buffer)
+    //     {
+    //         buffer->SwapBuffers();
+    //     }
+    // }
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    for (size_t i = 0; i < shared_buffers_ref.size(); i++)
+    {
+        SwapBuffers(i);
+    };
 }
 
 void Renderer::StartAsyncBufferProcessing()

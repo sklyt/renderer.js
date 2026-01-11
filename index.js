@@ -10,6 +10,8 @@ if (!renderer.initialize(800, 600, "Renderer Demo")) {
   process.exit(1);
 }
 
+console.log("Init shared",renderer.initSharedBuffers)
+
 renderer.setWindowState(RESIZABLE);
 renderer.targetFPS = 60;
 

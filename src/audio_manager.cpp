@@ -44,6 +44,13 @@ void AudioManager::Shutdown(){
     }
     music_.clear();
     
+    for (auto& [handle, streamData] : audioStreams_) {
+        if (streamData.loaded) {
+            ::UnloadAudioStream(streamData.stream);
+        }
+    }
+    audioStreams_.clear();
+    
     CloseAudioDevice();
     initialized_ = false;
     Debugger::Instance().LogInfo("Audio manager shutdown");
@@ -257,4 +264,83 @@ void AudioManager::SetMasterVolume(float volume) {
 
 float AudioManager::GetMasterVolume() const {
     return masterVolume_;
+}
+
+AudioStreamHandle AudioManager::CreateAudioStream(uint32_t sampleRate, uint32_t sampleSize, uint32_t channels) {
+    if (!initialized_) return 0;
+    
+    AudioStream stream = ::LoadAudioStream(sampleRate, sampleSize, channels);
+    if (stream.buffer == nullptr) {
+        Debugger::Instance().LogError("Failed to create audio stream");
+        return 0;
+    }
+    
+    AudioStreamHandle handle = nextAudioStreamHandle_++;
+    audioStreams_[handle] = {stream, sampleRate, sampleSize, channels, true};
+    return handle;
+}
+
+void AudioManager::UpdateAudioStream(AudioStreamHandle handle, const void* data, int frameCount) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded && data) {
+        ::UpdateAudioStream(it->second.stream, data, frameCount);
+    }
+}
+
+void AudioManager::PlayAudioStream(AudioStreamHandle handle) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        ::PlayAudioStream(it->second.stream);
+    }
+}
+
+void AudioManager::StopAudioStream(AudioStreamHandle handle) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        ::StopAudioStream(it->second.stream);
+    }
+}
+
+void AudioManager::PauseAudioStream(AudioStreamHandle handle) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        ::PauseAudioStream(it->second.stream);
+    }
+}
+
+void AudioManager::ResumeAudioStream(AudioStreamHandle handle) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        ::ResumeAudioStream(it->second.stream);
+    }
+}
+
+void AudioManager::UnloadAudioStream(AudioStreamHandle handle) {
+    if (!initialized_) return;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        ::UnloadAudioStream(it->second.stream);
+        audioStreams_.erase(it);
+    }
+}
+
+bool AudioManager::IsAudioStreamProcessed(AudioStreamHandle handle) const {
+    if (!initialized_) return false;
+    
+    auto it = audioStreams_.find(handle);
+    if (it != audioStreams_.end() && it->second.loaded) {
+        return ::IsAudioStreamProcessed(it->second.stream);
+    }
+    return false;
 }

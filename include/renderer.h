@@ -8,6 +8,30 @@
 #include "shared_buffer.h"
 #include <thread>
 #include "napi.h"
+#include <atomic>
+#include <cstdint>
+
+// control buffer offsets (in u32 units)
+#define CTRL_JS_WRITE_IDX 0
+#define CTRL_CPP_READ_IDX 1
+#define CTRL_GPU_RENDER_IDX 2
+#define CTRL_DIRTY_FLAG 3
+#define CTRL_DIRTY_COUNT 4
+#define CTRL_DIRTY_REGIONS 5 // start of [x,y,w,h] array
+
+#define MAX_DIRTY_REGIONS 256
+
+struct SharedBufferRefs
+{
+    uint8_t* pixel_buffers[3]; // pointers to JS ArrayBuffers
+    uint32_t *control;      // pointer to control buffer
+    Napi::Reference<Napi::ArrayBuffer>  refs[4];       // Keep buffers alive
+    size_t buffer_size;     // size of each pixel buffer
+    uint32_t width;
+    uint32_t height;
+    unsigned int texture_id;
+
+};
 
 using onReziseCallback = std::function<void(int width, int height)>;
 
@@ -106,12 +130,21 @@ public:
     // buffers
     void SwapAllBuffers();
     void ProcessBufferUpdates();
+    void SwapBuffers(size_t bufRefId);
+    void ProcessDirtyRegions(size_t bufRefId, uint32_t buffer_idx) ;
+    void UploadEntireBuffer(size_t bufRefId, uint32_t buffer_idx);
+    void UploadRegionToGPU(TextureId texId, uint8_t* pixel_data,
+                                 uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                                 uint32_t fullWidth, uint32_t fullHeight);
 
     void StartAsyncBufferProcessing();
     void StopAsyncBufferProcessing();
 
     onReziseCallback onResize_;
-
+    std::vector<SharedBufferRefs *>  shared_buffers_ref;
+    
+    bool buffers_initialized_ = false;
+  Color4 clearColor = Color4(0.2, 0.3, 0.4, 1.0);
 private:
     int width_;
     int height_;
@@ -127,7 +160,7 @@ private:
     bool inTextureMode_;
 
     std::vector<std::function<void()>> renderCallbacks_;
-    Color4 clearColor = Color4(0.2, 0.3, 0.4, 1.0);
+  
 
     std::atomic<bool> async_processing_{false};
     std::thread buffer_update_thread_;

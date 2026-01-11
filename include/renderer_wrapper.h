@@ -130,6 +130,22 @@ public:
 
     Napi::Value LoadImage(const Napi::CallbackInfo &info);
     Napi::Value UnloadImage(const Napi::CallbackInfo &info);
+    Napi::Value InitSharedBuffers(const Napi::CallbackInfo &info);
+
+    Napi::Value SetClearColor(const Napi::CallbackInfo &info)
+    {
+        Napi::Env env = info.Env();
+        Color4 color(0.1f, 0.1f, 0.1f, 1.0f);
+        if (info.Length() > 0)
+        {
+            color = ParseColor(info[0], color);
+        }
+
+        if (renderer_)
+        {
+            renderer_->clearColor = color;
+        }
+    }
 
 private:
     std::unique_ptr<Renderer> renderer_;
