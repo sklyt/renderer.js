@@ -145,6 +145,8 @@ public:
         {
             renderer_->clearColor = color;
         }
+
+         return env.Undefined();
     }
 
 private:
