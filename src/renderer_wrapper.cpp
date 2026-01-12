@@ -464,7 +464,8 @@ Napi::Value RendererWrapper::DrawTexture(const Napi::CallbackInfo &info)
     }
 
     size_t bufferId = info[0].As<Napi::Number>().Uint32Value();
-    // TODO: check 
+    // TODO: check bounds
+    std::lock_guard<std::mutex> lock(renderer_->buffers_mutex_);
     Renderer::TextureId textureId = renderer_->shared_buffers_ref[bufferId]->texture_id;
     Vec2 position = ParseVec2(info[1]);
 

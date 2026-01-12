@@ -353,7 +353,7 @@ void Renderer::RegisterRenderCallback(std::function<void()> callback)
 bool Renderer::Step()
 {
     UpdateSizeIfNeeded();
-    ProcessBufferUpdates();
+    SwapAllBuffers();
     BeginFrame();
     Clear(clearColor);
     for (auto &callback : renderCallbacks_)
@@ -368,12 +368,15 @@ bool Renderer::Step()
 
 void Renderer::SwapBuffers(size_t bufRefId)
 {
+    // Debugger::Instance().LogInfo("swapping buffer " + std::to_string(bufRefId));
+    // Debugger::Instance().LogInfo("buffer size " + std::to_string(shared_buffers_ref.size()));
     std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
         return;
     SharedBufferRefs *s = shared_buffers_ref[bufRefId];
     if (!s)
         return;
+    // Debugger::Instance().LogInfo("buffer textureId " + std::to_string(s->texture_id));
 
     std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
     uint32_t dirty = ctrl[CTRL_DIRTY_FLAG].load(std::memory_order_acquire);
@@ -403,7 +406,7 @@ void Renderer::SwapBuffers(size_t bufRefId)
 // renderer.cpp
 void Renderer::ProcessDirtyRegions(size_t bufRefId, uint32_t buffer_idx)
 {
-    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    // std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
         return;
     SharedBufferRefs *s = shared_buffers_ref[bufRefId];
@@ -460,7 +463,7 @@ void Renderer::UploadRegionToGPU(TextureId texId, uint8_t *pixel_data,
     if (w == 0 || h == 0)
         return;
 
-    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    // std::lock_guard<std::mutex> lock(buffers_mutex_);
     auto it = textures_.find(texId);
     if (it == textures_.end())
         return;
@@ -498,7 +501,7 @@ void Renderer::UploadRegionToGPU(TextureId texId, uint8_t *pixel_data,
 // Upload entire buffer
 void Renderer::UploadEntireBuffer(size_t bufRefId, uint32_t buffer_idx)
 {
-    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    // std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
         return;
     SharedBufferRefs *s = shared_buffers_ref[bufRefId];
@@ -525,8 +528,12 @@ void Renderer::SwapAllBuffers()
     //         buffer->SwapBuffers();
     //     }
     // }
-    std::lock_guard<std::mutex> lock(buffers_mutex_);
-    for (size_t i = 0; i < shared_buffers_ref.size(); i++)
+    size_t n;
+    {
+        std::lock_guard<std::mutex> lock(buffers_mutex_);
+        n = shared_buffers_ref.size();
+    }
+    for (size_t i = 0; i < n; i++)
     {
         SwapBuffers(i);
     };
