@@ -463,7 +463,9 @@ Napi::Value RendererWrapper::DrawTexture(const Napi::CallbackInfo &info)
         return env.Undefined();
     }
 
-    Renderer::TextureId textureId = info[0].As<Napi::Number>().Uint32Value();
+    size_t bufferId = info[0].As<Napi::Number>().Uint32Value();
+    // TODO: check 
+    Renderer::TextureId textureId = renderer_->shared_buffers_ref[bufferId]->texture_id;
     Vec2 position = ParseVec2(info[1]);
 
     Color4 tint(1, 1, 1, 1);
