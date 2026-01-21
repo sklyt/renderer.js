@@ -161,7 +161,7 @@ void AudioManager::UnloadSound(SoundHandle handle) {
     }
 }
 
-MusicHandle AudioManager::LoadMusic(const std::string& filePath) {
+MusicHandle AudioManager::LoadMusic(const std::string& filePath, bool loop) {
     if (!initialized_) return 0;
     
     Music music = LoadMusicStream(filePath.c_str());
@@ -171,11 +171,11 @@ MusicHandle AudioManager::LoadMusic(const std::string& filePath) {
     }
     
     MusicHandle handle = nextMusicHandle_++;
-    music_[handle] = {music, filePath, true};
+    music_[handle] = {music, filePath, true, loop};
     return handle;
 }
 
-MusicHandle AudioManager::LoadMusicFromMemory(const std::string &fileType, const uint8_t* data, int dataSize) {
+MusicHandle AudioManager::LoadMusicFromMemory(const std::string &fileType, const uint8_t* data, int dataSize, bool loop) {
     if (!initialized_) return 0;
     if (!data || dataSize <= 0) return 0;
 
@@ -186,7 +186,7 @@ MusicHandle AudioManager::LoadMusicFromMemory(const std::string &fileType, const
     }
 
     MusicHandle handle = nextMusicHandle_++;
-    music_[handle] = {music, std::string("memory:") + fileType, true};
+    music_[handle] = {music, std::string("memory:") + fileType, true, loop};
     return handle;
 }
 
@@ -264,6 +264,31 @@ void AudioManager::SetMasterVolume(float volume) {
 
 float AudioManager::GetMasterVolume() const {
     return masterVolume_;
+}
+
+void AudioManager::Update() {
+    if (!initialized_) return;
+    
+    for (auto& entry : music_) {
+        auto& musicData = entry.second;
+        if (musicData.loaded) {
+            ::UpdateMusicStream(musicData.music);
+            
+            // Restart if looping and music stopped
+            if (musicData.loop && !::IsMusicStreamPlaying(musicData.music)) {
+                ::PlayMusicStream(musicData.music);
+            }
+        }
+    }
+}
+
+void AudioManager::SetMusicLooping(MusicHandle handle, bool loop) {
+    if (!initialized_) return;
+    
+    auto it = music_.find(handle);
+    if (it != music_.end()) {
+        it->second.loop = loop;
+    }
 }
 
 AudioStreamHandle AudioManager::CreateAudioStream(uint32_t sampleRate, uint32_t sampleSize, uint32_t channels) {

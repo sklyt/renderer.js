@@ -28,6 +28,7 @@ Napi::Object AudioWrapper::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod("setMusicVolume", &AudioWrapper::SetMusicVolume),
         InstanceMethod("isMusicPlaying", &AudioWrapper::IsMusicPlaying),
         InstanceMethod("unloadMusic", &AudioWrapper::UnloadMusic),
+        InstanceMethod("setMusicLooping", &AudioWrapper::SetMusicLooping),
         
         InstanceMethod("createAudioStream", &AudioWrapper::CreateAudioStream),
         InstanceMethod("updateAudioStream", &AudioWrapper::UpdateAudioStream),
@@ -194,7 +195,12 @@ Napi::Value AudioWrapper::LoadMusic(const Napi::CallbackInfo& info) {
     }
     
     std::string filePath = info[0].As<Napi::String>().Utf8Value();
-    MusicHandle handle = AudioManager::Instance().LoadMusic(filePath);
+    bool loop = false;
+    if (info.Length() >= 2 && info[1].IsBoolean()) {
+        loop = info[1].As<Napi::Boolean>().Value();
+    }
+    
+    MusicHandle handle = AudioManager::Instance().LoadMusic(filePath, loop);
     
     return Napi::Number::New(env, handle);
 }
@@ -203,7 +209,7 @@ Napi::Value AudioWrapper::LoadMusicFromMemory(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
     if (info.Length() < 2 || !info[0].IsString()) {
-        Napi::TypeError::New(env, "Expected (fileType: string, buffer)").ThrowAsJavaScriptException();
+        Napi::TypeError::New(env, "Expected (fileType: string, buffer, loop?: boolean)").ThrowAsJavaScriptException();
         return env.Null();
     }
 
@@ -234,7 +240,12 @@ Napi::Value AudioWrapper::LoadMusicFromMemory(const Napi::CallbackInfo& info) {
         return env.Null();
     }
 
-    MusicHandle handle = AudioManager::Instance().LoadMusicFromMemory(fileType, data, static_cast<int>(dataSize));
+    bool loop = false;
+    if (info.Length() >= 3 && info[2].IsBoolean()) {
+        loop = info[2].As<Napi::Boolean>().Value();
+    }
+
+    MusicHandle handle = AudioManager::Instance().LoadMusicFromMemory(fileType, data, static_cast<int>(dataSize), loop);
     return Napi::Number::New(env, handle);
 }
 
@@ -479,6 +490,21 @@ Napi::Value AudioWrapper::SetMasterVolume(const Napi::CallbackInfo& info) {
     
     float volume = info[0].As<Napi::Number>().FloatValue();
     AudioManager::Instance().SetMasterVolume(volume);
+    
+    return env.Undefined();
+}
+
+Napi::Value AudioWrapper::SetMusicLooping(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsBoolean()) {
+        Napi::TypeError::New(env, "Expected (musicHandle: number, loop: boolean)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    
+    MusicHandle handle = static_cast<MusicHandle>(info[0].As<Napi::Number>().Uint32Value());
+    bool loop = info[1].As<Napi::Boolean>().Value();
+    AudioManager::Instance().SetMusicLooping(handle, loop);
     
     return env.Undefined();
 }

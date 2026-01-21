@@ -24,9 +24,9 @@ const audio = renderer.audio;
 
 // load sound from disk and play immediately
 const soundPath = "/home/sifundo/workspace/C/clem/scripts/assets/sounds/Technology/Camila Cabello  I LUV IT Feat Playboi Carti Official Music Video.ogg";
-const soundHandle = audio.loadSound(soundPath);
+const soundHandle = audio.loadMusic(soundPath, true);
 console.log('disk sound handle', soundHandle);
-if (soundHandle) audio.playSound(soundHandle);
+if (soundHandle) audio.playMusic(soundHandle);
 
 // load a sound from memory (Buffer / TypedArray / ArrayBuffer / SharedArrayBuffer supported)
 const memFilePath = path.join(__dirname, 'assets', 'click.wav'); // change to a real small file

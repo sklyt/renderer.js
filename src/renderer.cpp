@@ -360,6 +360,10 @@ bool Renderer::Step()
     {
         callback();
     }
+    
+    // Keep music streams fed (required for raylib streaming music playback)
+    AudioManager::Instance().Update();
+    
     EndFrame();
     return !IsWindowClosed();
 }

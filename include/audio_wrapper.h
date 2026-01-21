@@ -29,6 +29,7 @@ private:
     Napi::Value SetMusicVolume(const Napi::CallbackInfo &info);
     Napi::Value IsMusicPlaying(const Napi::CallbackInfo &info);
     Napi::Value UnloadMusic(const Napi::CallbackInfo &info);
+    Napi::Value SetMusicLooping(const Napi::CallbackInfo &info);
 
     // Audio streaming
     Napi::Value CreateAudioStream(const Napi::CallbackInfo &info);

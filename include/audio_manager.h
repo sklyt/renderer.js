@@ -30,8 +30,8 @@ public:
     bool IsSoundPlaying(SoundHandle handle) const;
 
 
-    MusicHandle LoadMusic(const std::string &filePath);
-    MusicHandle LoadMusicFromMemory(const std::string &fileType, const uint8_t* data, int dataSize);
+    MusicHandle LoadMusic(const std::string &filePath, bool loop = false);
+    MusicHandle LoadMusicFromMemory(const std::string &fileType, const uint8_t* data, int dataSize, bool loop = false);
     void PlayMusic(MusicHandle handle);
     void StopMusic(MusicHandle handle);
     void PauseMusic(MusicHandle handle);
@@ -39,6 +39,7 @@ public:
     void SetMusicVolume(MusicHandle handle, float volume);
     void UnloadMusic(MusicHandle handle);
     bool IsMusicPlaying(MusicHandle handle) const;
+    void SetMusicLooping(MusicHandle handle, bool loop);
 
     // Audio streaming (push model)
     AudioStreamHandle CreateAudioStream(uint32_t sampleRate, uint32_t sampleSize, uint32_t channels);
@@ -52,6 +53,8 @@ public:
 
     void SetMasterVolume(float volume);
     float GetMasterVolume() const;
+
+    void Update();
 
 private:
     AudioManager();
@@ -69,6 +72,7 @@ private:
         Music music;
         std::string path;
         bool loaded = false;
+        bool loop = false;
     };
 
     struct AudioStreamData
