@@ -231,15 +231,20 @@ public:
         return env.Undefined();
     }
 
-    // sprite 
+    // sprite
 
-      Napi::Value LoadAtlas(const Napi::CallbackInfo &info);
+    Napi::Value LoadAtlas(const Napi::CallbackInfo &info);
     Napi::Value GetAtlasPixel(const Napi::CallbackInfo &info);
     Napi::Value IsAtlasOpaque(const Napi::CallbackInfo &info);
     Napi::Value GetAtlasData(const Napi::CallbackInfo &info);
     Napi::Value GetAtlasDataAndFree(const Napi::CallbackInfo &info);
     Napi::Value FreeAtlas(const Napi::CallbackInfo &info);
-
+    
+    // animated sprite
+    Napi::Value CreateSprite(const Napi::CallbackInfo &info);
+    Napi::Value UpdateSprite(const Napi::CallbackInfo &info);
+    Napi::Value DrawSprite(const Napi::CallbackInfo &info);
+    Napi::Value DestroySprite(const Napi::CallbackInfo &info);
     // Napi::Value PartialTextureUpdate(const Napi::CallbackInfo &info)
     // {
     //     Napi::Env env = info.Env();

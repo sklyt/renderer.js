@@ -7,6 +7,50 @@ if (!renderer.initialize(800, 600, "Renderer Demo")) {
     process.exit(1);
 }
 
+// Mock Camera2D
+const camera = {
+    worldPosition: { x: 0, y: 0 },
+    targetPosition: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    worldZoom: 1.0,
+    viewWidth: 800,
+    viewHeight: 600,
+    worldRotation: 0,
+    frustum: {
+        left: -400,
+        right: 400,
+        top: -300,
+        bottom: 300
+    },
+    dirty: false,
+
+    setPosition(x, y) {
+        this.targetPosition.x = x;
+        this.targetPosition.y = y;
+        this.dirty = true;
+    },
+
+    updateWorldTransform() {
+        if (!this.dirty) return;
+
+        // Lerp towards target position
+        const lerpFactor = 0.1;
+        this.worldPosition.x += (this.targetPosition.x - this.worldPosition.x) * lerpFactor;
+        this.worldPosition.y += (this.targetPosition.y - this.worldPosition.y) * lerpFactor;
+
+        // Calculate half dimensions adjusted by zoom
+        const halfWidth = (this.viewWidth / 2) / this.worldZoom;
+        const halfHeight = (this.viewHeight / 2) / this.worldZoom;
+
+        // Update frustum relative to world position
+        this.frustum.left = this.worldPosition.x - halfWidth;
+        this.frustum.right = this.worldPosition.x + halfWidth;
+        this.frustum.top = this.worldPosition.y - halfHeight;
+        this.frustum.bottom = this.worldPosition.y + halfHeight;
+
+        this.dirty = false;
+    }
+};
 
 
 const atlasId = renderer.loadAtlas("/home/sk/workspace/js/tessera/assets/G_GqXDrXwAAi5Bi.jpg");
@@ -17,9 +61,31 @@ const atlas2 = renderer.loadAtlas("/home/sk/workspace/js/tessera/assets/G_GqXDrX
 console.log("Loaded atlas 2:", atlas2);
 // 
 console.log(renderer.isAtlasOpaque(atlasId))
-console.log(renderer.getAtlasPixel(atlasId, 0, 0))
-console.log(renderer.getAtlasDataAndFree(atlasId))
-console.log(renderer.freeAtlas(atlas2))
+// console.log(renderer.getAtlasPixel(atlasId, 0, 0))
+// console.log(renderer.getAtlasDataAndFree(atlasId))
+// console.log(renderer.freeAtlas(atlas2))
+const spriteId = renderer.createSprite(atlas2, 32, 32, 8, true);
+console.log("Created sprite:", spriteId);
+renderer.updateSprite(
+    spriteId,
+    500,    // x
+    500,    // y
+    0,      // rotation
+    1.0,    // scaleX
+    1.0,    // scaleY
+    0,      // frame
+    false,  // flipH
+    false   // flipV
+);
+console.log("Updated sprite position to (400, 300)");
+const sprite2 = renderer.createSprite(atlasId, 32, 32, 8, true);
+const sprite3 = renderer.createSprite(atlasId, 32, 32, 8, true);
+console.log("Created sprites 2 and 3:", sprite2, sprite3);
+// Cleanup
+// renderer.destroySprite(spriteId);
+// renderer.destroySprite(sprite2);
+// renderer.destroySprite(sprite3);
+console.log("Destroyed all sprites");
 
 // Invalid path
 try {
@@ -83,15 +149,21 @@ const clear = (r, g, b, a = 255, buffer = undefined) => {
 
 
 }
-
+let frame = 0;
 function loop() {
     const startTime = performance.now();
     clear(50, 50, 50, canvas.data.buffer); // JS writes background
-
+    canvas.updateCamera(camera);
+    const buffer = canvas.getCurrentBuffer();
+    const idx = (10 * canvas.width + 10) * 4;
+    buffer[idx] = 255;
+    buffer[idx + 1] = 255;
+    buffer[idx + 2] = 255;
+    buffer[idx + 3] = 255;
+    canvas.markRegion(10, 10, 1, 1);
     cppCommand(canvas); // C++ processes + writes
 
-    // JS continues writing (green square)
-    const buffer = canvas.getCurrentBuffer();
+
     const w = canvas.width;
     for (let y = 200; y < 250; y++) {
         for (let x = 200; x < 250; x++) {
@@ -117,7 +189,11 @@ function loop() {
         }
     }
     canvas.markRegion(300, 300, 50, 50);
+    renderer.drawSprite(spriteId, canvas.textureId);
 
+    // Animate
+    frame = (frame + 1) % 8;
+    renderer.updateSprite(spriteId, -100, 100, 0, 2.0, 2.0, frame, false, false);
     // NOW we swap and upload everything
     canvas.upload();
     const elapsed = performance.now() - startTime;

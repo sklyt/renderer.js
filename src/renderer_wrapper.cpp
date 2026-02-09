@@ -4,7 +4,8 @@
 #include "console_control.h"
 
 // Forward declare stb_image functions
-extern "C" {
+extern "C"
+{
     unsigned char *stbi_load(char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
     void stbi_image_free(void *retval_from_stbi_load);
 }
@@ -126,17 +127,19 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("initSharedBuffers", &RendererWrapper::InitSharedBuffers),
 
                                                            // extending to support internal cpp commands
-                                                             InstanceMethod("processPendingRegions", &RendererWrapper::ProcessPendingRegions),
-                                                                 InstanceMethod("loadAtlas", &RendererWrapper::LoadAtlas),
-                                                                 InstanceMethod("getAtlasPixel", &RendererWrapper::GetAtlasPixel),
-                                                                 InstanceMethod("isAtlasOpaque", &RendererWrapper::IsAtlasOpaque),
-                                                                 InstanceMethod("getAtlasData", &RendererWrapper::GetAtlasData),
-                                                                 InstanceMethod("getAtlasDataAndFree", &RendererWrapper::GetAtlasDataAndFree),
-                                                                 InstanceMethod("freeAtlas", &RendererWrapper::FreeAtlas),
-                                                           
+                                                           InstanceMethod("processPendingRegions", &RendererWrapper::ProcessPendingRegions),
+                                                           InstanceMethod("loadAtlas", &RendererWrapper::LoadAtlas),
+                                                           InstanceMethod("getAtlasPixel", &RendererWrapper::GetAtlasPixel),
+                                                           InstanceMethod("isAtlasOpaque", &RendererWrapper::IsAtlasOpaque),
+                                                           InstanceMethod("getAtlasData", &RendererWrapper::GetAtlasData),
+                                                           InstanceMethod("getAtlasDataAndFree", &RendererWrapper::GetAtlasDataAndFree),
+                                                           InstanceMethod("freeAtlas", &RendererWrapper::FreeAtlas),
+                                                           InstanceMethod("createSprite", &RendererWrapper::CreateSprite),
+                                                           InstanceMethod("updateSprite", &RendererWrapper::UpdateSprite),
+                                                           InstanceMethod("drawSprite", &RendererWrapper::DrawSprite),
+                                                           InstanceMethod("destroySprite", &RendererWrapper::DestroySprite),
 
-
-                                                           });
+                                                       });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -159,161 +162,247 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
 RendererWrapper::RendererWrapper(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<RendererWrapper>(info), renderer_(std::make_unique<Renderer>()) {}
 
-
-
-// sprite 
+// sprite
 
 Napi::Value RendererWrapper::LoadAtlas(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
-     
-     if (info.Length() < 1 || !info[0].IsString())
-     {
-         Napi::TypeError::New(env, "Expected string path").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
-     
-     std::string path = info[0].As<Napi::String>().Utf8Value();
-     uint32_t atlasId = renderer_->LoadAtlas(path);
-     
-     if (atlasId == 0) {
-         Napi::Error::New(env, "Failed to load atlas: " + path).ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
-     
-     return Napi::Number::New(env, atlasId);
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected string path").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    std::string path = info[0].As<Napi::String>().Utf8Value();
+    uint32_t atlasId = renderer_->LoadAtlas(path);
+
+    if (atlasId == 0)
+    {
+        Napi::Error::New(env, "Failed to load atlas: " + path).ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    return Napi::Number::New(env, atlasId);
 }
 
 Napi::Value RendererWrapper::GetAtlasPixel(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
+    Napi::Env env = info.Env();
 
-     if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber())
-     {
-         Napi::TypeError::New(env, "Expected (atlasId, x, y)").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected (atlasId, x, y)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
-     uint32_t x = info[1].As<Napi::Number>().Uint32Value();
-     uint32_t y = info[2].As<Napi::Number>().Uint32Value();
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    uint32_t x = info[1].As<Napi::Number>().Uint32Value();
+    uint32_t y = info[2].As<Napi::Number>().Uint32Value();
 
-     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
-     if (!atlas)
-     {
-         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+    if (!atlas)
+    {
+        Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t pixel = renderer_->GetAtlasPixel(atlas, x, y);
-     return Napi::Number::New(env, pixel);
+    uint32_t pixel = renderer_->GetAtlasPixel(atlas, x, y);
+    return Napi::Number::New(env, pixel);
 }
 
 Napi::Value RendererWrapper::IsAtlasOpaque(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
+    Napi::Env env = info.Env();
 
-     if (info.Length() < 1 || !info[0].IsNumber())
-     {
-         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
-     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
-     if (!atlas)
-     {
-         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+    if (!atlas)
+    {
+        Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     bool opaque = renderer_->IsAtlasOpaque(atlas);
-     return Napi::Boolean::New(env, opaque);
+    bool opaque = renderer_->IsAtlasOpaque(atlas);
+    return Napi::Boolean::New(env, opaque);
 }
 
 Napi::Value RendererWrapper::GetAtlasData(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
+    Napi::Env env = info.Env();
 
-     if (info.Length() < 1 || !info[0].IsNumber())
-     {
-         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
-     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
-     if (!atlas)
-     {
-         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+    if (!atlas)
+    {
+        Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     Napi::Object result = Napi::Object::New(env);
-     result.Set("width", Napi::Number::New(env, atlas->width));
-     result.Set("height", Napi::Number::New(env, atlas->height));
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("width", Napi::Number::New(env, atlas->width));
+    result.Set("height", Napi::Number::New(env, atlas->height));
 
-     // Create Uint8Array from pixel data
-     size_t dataSize = atlas->width * atlas->height * 4;
-     Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
-     memcpy(arrayBuffer.Data(), atlas->data, dataSize);
-     Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
+    // Create Uint8Array from pixel data
+    size_t dataSize = atlas->width * atlas->height * 4;
+    Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
+    memcpy(arrayBuffer.Data(), atlas->data, dataSize);
+    Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
 
-     result.Set("data", uint8Array);
+    result.Set("data", uint8Array);
 
-     return result;
+    return result;
 }
 
 Napi::Value RendererWrapper::GetAtlasDataAndFree(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
+    Napi::Env env = info.Env();
 
-     if (info.Length() < 1 || !info[0].IsNumber())
-     {
-         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
-     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
-     if (!atlas)
-     {
-         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+    if (!atlas)
+    {
+        Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     Napi::Object result = Napi::Object::New(env);
-     result.Set("width", Napi::Number::New(env, atlas->width));
-     result.Set("height", Napi::Number::New(env, atlas->height));
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("width", Napi::Number::New(env, atlas->width));
+    result.Set("height", Napi::Number::New(env, atlas->height));
 
-     // Create Uint8Array from pixel data
-     size_t dataSize = atlas->width * atlas->height * 4;
-     Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
-     memcpy(arrayBuffer.Data(), atlas->data, dataSize);
-     Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
+    // Create Uint8Array from pixel data
+    size_t dataSize = atlas->width * atlas->height * 4;
+    Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
+    memcpy(arrayBuffer.Data(), atlas->data, dataSize);
+    Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
 
-     result.Set("data", uint8Array);
+    result.Set("data", uint8Array);
 
-     // Free the atlas after copying data
-     renderer_->FreeAtlas(atlasId);
+    // Free the atlas after copying data
+    renderer_->FreeAtlas(atlasId);
 
-     return result;
+    return result;
 }
 
 Napi::Value RendererWrapper::FreeAtlas(const Napi::CallbackInfo &info)
 {
-     Napi::Env env = info.Env();
+    Napi::Env env = info.Env();
 
-     if (info.Length() < 1 || !info[0].IsNumber())
-     {
-         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
-         return env.Undefined();
-     }
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
-     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
-     renderer_->FreeAtlas(atlasId);
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    renderer_->FreeAtlas(atlasId);
 
-     return env.Undefined();
+    return env.Undefined();
+}
+
+// animated sprite
+Napi::Value RendererWrapper::CreateSprite(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 4)
+    {
+        Napi::TypeError::New(env, "Expected (atlasId, frameWidth, frameHeight, frameCount, opaque)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    uint32_t frameWidth = info[1].As<Napi::Number>().Uint32Value();
+    uint32_t frameHeight = info[2].As<Napi::Number>().Uint32Value();
+    uint32_t frameCount = info[3].As<Napi::Number>().Uint32Value();
+    bool opaque = info.Length() > 4 ? info[4].As<Napi::Boolean>().Value() : false;
+
+    uint32_t spriteId = renderer_->CreateSprite(atlasId, frameWidth, frameHeight, frameCount, opaque);
+
+    if (spriteId == 0)
+    {
+        Napi::Error::New(env, "Failed to create sprite").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    return Napi::Number::New(env, spriteId);
+}
+
+Napi::Value RendererWrapper::UpdateSprite(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 8)
+    {
+        Napi::TypeError::New(env, "Expected (spriteId, x, y, rotation, scaleX, scaleY, frame, flipH, flipV)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t spriteId = info[0].As<Napi::Number>().Uint32Value();
+    float x = info[1].As<Napi::Number>().FloatValue();
+    float y = info[2].As<Napi::Number>().FloatValue();
+    float rotation = info[3].As<Napi::Number>().FloatValue();
+    float scaleX = info[4].As<Napi::Number>().FloatValue();
+    float scaleY = info[5].As<Napi::Number>().FloatValue();
+    uint32_t frame = info[6].As<Napi::Number>().Uint32Value();
+    uint8_t flipH = info.Length() > 7 ? info[7].As<Napi::Boolean>().Value() : 0;
+    uint8_t flipV = info.Length() > 8 ? info[8].As<Napi::Boolean>().Value() : 0;
+
+    renderer_->UpdateSprite(spriteId, x, y, rotation, scaleX, scaleY, frame, flipH, flipV);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DrawSprite(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2)
+    {
+        Napi::TypeError::New(env, "Expected (spriteId, bufRefId)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t spriteId = info[0].As<Napi::Number>().Uint32Value();
+    size_t bufRefId = info[1].As<Napi::Number>().Uint32Value();
+
+    renderer_->DrawSprite(spriteId, bufRefId);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DestroySprite(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1)
+    {
+        Napi::TypeError::New(env, "Expected spriteId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t spriteId = info[0].As<Napi::Number>().Uint32Value();
+    renderer_->DestroySprite(spriteId);
+
+    return env.Undefined();
 }
 
 // migrate to shared buffer
@@ -552,7 +641,6 @@ Napi::Value RendererWrapper::UnloadImage(const Napi::CallbackInfo &info)
     return env.Undefined();
 }
 
-
 // Drawing methods
 Napi::Value RendererWrapper::Clear(const Napi::CallbackInfo &info)
 {
@@ -566,7 +654,7 @@ Napi::Value RendererWrapper::Clear(const Napi::CallbackInfo &info)
 
     if (renderer_)
     {
-       
+
         renderer_->Clear(color);
     }
     return env.Undefined();

@@ -57,6 +57,54 @@ struct SpriteAtlas
     SpriteAtlas &operator=(const SpriteAtlas &) = delete;
 };
 
+struct AnimatedSprite
+{
+    uint32_t atlasId;      // Which atlas to blit from
+    uint32_t currentFrame; // Current frame index in atlas
+    uint32_t frameWidth;   // Frame dimensions
+    uint32_t frameHeight;
+    uint32_t framesPerRow; // Atlas layout (for frame → x,y lookup)
+
+    // Transform (updated from JS every frame)
+    float x, y;     // World position
+    float rotation; // Radians
+    float scaleX, scaleY;
+
+    // Visual flags
+    uint8_t flipH;
+    uint8_t flipV;
+    uint8_t opaque; // Hint: atlas has no transparency
+    uint8_t _pad;   // Alignment
+
+    // Modulate color (tint)
+    uint8_t modR, modG, modB, modA;
+
+    // Animation state (optional, can be driven by JS or C++)
+    uint32_t *frameSequence; // Array of frame indices
+    uint32_t frameCount;     // Length of sequence
+    float frameTimer;        // Accumulator for animation
+    float fps;               // Animation speed
+    uint8_t playing;
+    uint8_t loop;
+    uint8_t _pad2[2];
+
+    AnimatedSprite() : atlasId(0), currentFrame(0), frameWidth(0), frameHeight(0),
+                       framesPerRow(0), x(0), y(0), rotation(0), scaleX(1), scaleY(1),
+                       flipH(0), flipV(0), opaque(0), _pad(0),
+                       modR(255), modG(255), modB(255), modA(255),
+                       frameSequence(nullptr), frameCount(0), frameTimer(0), fps(12),
+                       playing(0), loop(0) {}
+
+    ~AnimatedSprite()
+    {
+        if (frameSequence)
+        {
+            delete[] frameSequence;
+            frameSequence = nullptr;
+        }
+    }
+};
+
 // Camera state struct
 struct CameraState
 {
@@ -65,6 +113,11 @@ struct CameraState
     float viewWidth, viewHeight;
     float rotation;
     float frustumLeft, frustumRight, frustumTop, frustumBottom;
+};
+
+struct ScreenRect {
+    int32_t x, y;
+    uint32_t width, height;
 };
 
 // // control buffer offsets (in u32 units)
@@ -127,6 +180,16 @@ public:
     bool IsAtlasOpaque(SpriteAtlas *atlas);
     void FreeAtlas(uint32_t atlasId);
 
+    // sprite
+    uint32_t CreateSprite(uint32_t atlasId, uint32_t frameWidth, uint32_t frameHeight,
+                          uint32_t frameCount, bool opaque);
+    AnimatedSprite *GetSprite(uint32_t spriteId);
+    void UpdateSprite(uint32_t spriteId, float x, float y, float rotation,
+                      float scaleX, float scaleY, uint32_t frame,
+                      uint8_t flipH, uint8_t flipV);
+    void DrawSprite(uint32_t spriteId, size_t bufRefId);
+    void DestroySprite(uint32_t spriteId);
+
     struct ImageData
     {
         std::vector<uint8_t> data;
@@ -138,6 +201,7 @@ public:
 
     CameraState GetCameraState(size_t bufRefId);
     bool IsInFrustum(const CameraState &cam, float worldX, float worldY, float width, float height);
+    
 
     ImageData LoadImageFromFile(const std::string &path);
     void UnloadImageData(ImageData &imageData);
@@ -221,6 +285,9 @@ private:
     std::unordered_map<uint32_t, SpriteAtlas *> atlases_;
     uint32_t next_atlas_id_ = 1;
     std::mutex atlas_mutex_;
+    std::unordered_map<uint32_t, AnimatedSprite *> sprites_;
+    uint32_t next_sprite_id_ = 1;
+    std::mutex sprite_mutex_;
 
     // Internal texture management
     TextureId nextTextureId_;

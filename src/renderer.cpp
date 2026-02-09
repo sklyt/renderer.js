@@ -58,6 +58,15 @@ Renderer::~Renderer()
     }
     shared_buffers_ref.clear();
 
+    {
+        std::lock_guard<std::mutex> lock(sprite_mutex_);
+        for (auto &pair : sprites_)
+        {
+            delete pair.second;
+        }
+        sprites_.clear();
+    }
+
     if (initialized_)
     {
         Shutdown();
@@ -180,52 +189,485 @@ uint32_t Renderer::LoadAtlas(const std::string &path)
 
 SpriteAtlas *Renderer::GetAtlas(uint32_t atlasId)
 {
-     std::lock_guard<std::mutex> lock(atlas_mutex_);
-     auto it = atlases_.find(atlasId);
-     if (it == atlases_.end())
-         return nullptr;
-     return it->second;
+    std::lock_guard<std::mutex> lock(atlas_mutex_);
+    auto it = atlases_.find(atlasId);
+    if (it == atlases_.end())
+        return nullptr;
+    return it->second;
 }
 
 uint32_t Renderer::GetAtlasPixel(SpriteAtlas *atlas, uint32_t x, uint32_t y)
 {
-     if (!atlas || x >= atlas->width || y >= atlas->height)
-         return 0;
+    if (!atlas || x >= atlas->width || y >= atlas->height)
+        return 0;
 
-     uint32_t idx = (y * atlas->width + x) * 4;
-     uint8_t r = atlas->data[idx];
-     uint8_t g = atlas->data[idx + 1];
-     uint8_t b = atlas->data[idx + 2];
-     uint8_t a = atlas->data[idx + 3];
+    uint32_t idx = (y * atlas->width + x) * 4;
+    uint8_t r = atlas->data[idx];
+    uint8_t g = atlas->data[idx + 1];
+    uint8_t b = atlas->data[idx + 2];
+    uint8_t a = atlas->data[idx + 3];
 
-     // Pack into RGBA32
-     return (a << 24) | (b << 16) | (g << 8) | r;
+    // Pack into RGBA32
+    return (a << 24) | (b << 16) | (g << 8) | r;
 }
 
 bool Renderer::IsAtlasOpaque(SpriteAtlas *atlas)
 {
-     if (!atlas)
-         return false;
+    if (!atlas)
+        return false;
 
-     size_t pixelCount = atlas->width * atlas->height;
-     for (size_t i = 0; i < pixelCount; i++)
-     {
-         if (atlas->data[i * 4 + 3] < 255)
-             return false;
-     }
-     return true;
+    size_t pixelCount = atlas->width * atlas->height;
+    for (size_t i = 0; i < pixelCount; i++)
+    {
+        if (atlas->data[i * 4 + 3] < 255)
+            return false;
+    }
+    return true;
 }
 
 void Renderer::FreeAtlas(uint32_t atlasId)
 {
-     std::lock_guard<std::mutex> lock(atlas_mutex_);
-     auto it = atlases_.find(atlasId);
-     if (it != atlases_.end())
-     {
-         delete it->second;
-         atlases_.erase(it);
-     }
+    std::lock_guard<std::mutex> lock(atlas_mutex_);
+    auto it = atlases_.find(atlasId);
+    if (it != atlases_.end())
+    {
+        delete it->second;
+        atlases_.erase(it);
+    }
 }
+
+// renderer.cpp
+
+uint32_t Renderer::CreateSprite(uint32_t atlasId, uint32_t frameWidth, uint32_t frameHeight,
+                                uint32_t frameCount, bool opaque)
+{
+    // Validate atlas exists
+    SpriteAtlas *atlas = GetAtlas(atlasId);
+    if (!atlas)
+    {
+        Debugger::Instance().LogError("CreateSprite: invalid atlasId " + std::to_string(atlasId));
+        return 0;
+    }
+
+    AnimatedSprite *sprite = new AnimatedSprite();
+    sprite->atlasId = atlasId;
+    sprite->frameWidth = frameWidth;
+    sprite->frameHeight = frameHeight;
+    sprite->framesPerRow = atlas->width / frameWidth;
+    sprite->opaque = opaque ? 1 : 0;
+
+    // Default position (will be updated from JS)
+    sprite->x = 0;
+    sprite->y = 0;
+    sprite->scaleX = 1.0f;
+    sprite->scaleY = 1.0f;
+    sprite->rotation = 0;
+    sprite->currentFrame = 0;
+
+    std::lock_guard<std::mutex> lock(sprite_mutex_);
+    uint32_t id = next_sprite_id_++;
+    sprites_[id] = sprite;
+
+    Debugger::Instance().LogInfo("Created sprite " + std::to_string(id) +
+                                 " from atlas " + std::to_string(atlasId));
+
+    return id;
+}
+
+AnimatedSprite *Renderer::GetSprite(uint32_t spriteId)
+{
+    std::lock_guard<std::mutex> lock(sprite_mutex_);
+    auto it = sprites_.find(spriteId);
+    if (it == sprites_.end())
+        return nullptr;
+    return it->second;
+}
+
+void Renderer::UpdateSprite(uint32_t spriteId, float x, float y, float rotation,
+                            float scaleX, float scaleY, uint32_t frame,
+                            uint8_t flipH, uint8_t flipV)
+{
+    AnimatedSprite *sprite = GetSprite(spriteId);
+    if (!sprite)
+        return;
+
+    sprite->x = x;
+    sprite->y = y;
+    sprite->rotation = rotation;
+    sprite->scaleX = scaleX;
+    sprite->scaleY = scaleY;
+    sprite->currentFrame = frame;
+    sprite->flipH = flipH;
+    sprite->flipV = flipV;
+}
+
+void Renderer::DestroySprite(uint32_t spriteId)
+{
+    std::lock_guard<std::mutex> lock(sprite_mutex_);
+    auto it = sprites_.find(spriteId);
+    if (it != sprites_.end())
+    {
+        delete it->second;
+        sprites_.erase(it);
+    }
+}
+
+struct FrameRect
+{
+    uint32_t x, y, w, h;
+};
+
+FrameRect GetFrameRect(AnimatedSprite *sprite, uint32_t frameIndex)
+{
+    uint32_t col = frameIndex % sprite->framesPerRow;
+    uint32_t row = frameIndex / sprite->framesPerRow;
+
+    return {
+        col * sprite->frameWidth,
+        row * sprite->frameHeight,
+        sprite->frameWidth,
+        sprite->frameHeight};
+}
+
+
+// Fast path: opaque, no rotation, nearest neighbor
+void BlitSpriteNN_Opaque(uint8_t* dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
+                         const ScreenRect& dstRect,
+                         const SpriteAtlas* atlas, const FrameRect& srcRect,
+                         bool flipH, bool flipV)
+{
+    // Clamp dest rect to buffer bounds
+    int32_t dstX = dstRect.x;
+    int32_t dstY = dstRect.y;
+    int32_t dstW = dstRect.width;
+    int32_t dstH = dstRect.height;
+    
+    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
+        return;
+    if (dstX + dstW <= 0 || dstY + dstH <= 0)
+        return;
+    
+   
+    int32_t clipLeft = 0, clipTop = 0;
+    if (dstX < 0) {
+        clipLeft = -dstX;
+        dstW += dstX;
+        dstX = 0;
+    }
+    if (dstY < 0) {
+        clipTop = -dstY;
+        dstH += dstY;
+        dstY = 0;
+    }
+    if (dstX + dstW > static_cast<int32_t>(dstWidth))
+        dstW = dstWidth - dstX;
+    if (dstY + dstH > static_cast<int32_t>(dstHeight))
+        dstH = dstHeight - dstY;
+    
+    if (dstW <= 0 || dstH <= 0)
+        return;
+    
+    const uint8_t* srcData = atlas->data;
+    const uint32_t srcWidth = atlas->width;
+    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
+    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+    
+    // Row-by-row blit
+    for (int32_t row = 0; row < dstH; row++) {
+        int32_t screenY = dstY + row;
+        int32_t localY = clipTop + row;
+        
+        // Map to source Y
+        float srcYf = (localY + 0.5f) * scaleY;
+        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        if (flipV)
+            srcY = (srcRect.h - 1) - srcY;
+        srcY += srcRect.y;
+        
+        uint32_t dstRowBase = screenY * dstWidth * 4;
+        uint32_t srcRowBase = srcY * srcWidth * 4;
+        
+        for (int32_t col = 0; col < dstW; col++) {
+            int32_t screenX = dstX + col;
+            int32_t localX = clipLeft + col;
+            
+            // Map to source X
+            float srcXf = (localX + 0.5f) * scaleX;
+            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            if (flipH)
+                srcX = (srcRect.w - 1) - srcX;
+            srcX += srcRect.x;
+            
+            uint32_t dstIdx = dstRowBase + screenX * 4;
+            uint32_t srcIdx = srcRowBase + srcX * 4;
+            
+            // Direct copy (opaque, no blend)
+            dstBuffer[dstIdx + 0] = srcData[srcIdx + 0]; // R
+            dstBuffer[dstIdx + 1] = srcData[srcIdx + 1]; // G
+            dstBuffer[dstIdx + 2] = srcData[srcIdx + 2]; // B
+            dstBuffer[dstIdx + 3] = 255;                  // A
+        }
+    }
+}
+
+// With alpha blending
+void BlitSpriteNN_Alpha(uint8_t* dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
+                        const ScreenRect& dstRect,
+                        const SpriteAtlas* atlas, const FrameRect& srcRect,
+                        bool flipH, bool flipV)
+{
+
+    int32_t dstX = dstRect.x;
+    int32_t dstY = dstRect.y;
+    int32_t dstW = dstRect.width;
+    int32_t dstH = dstRect.height;
+    
+    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
+        return;
+    if (dstX + dstW <= 0 || dstY + dstH <= 0)
+        return;
+    
+    int32_t clipLeft = 0, clipTop = 0;
+    if (dstX < 0) {
+        clipLeft = -dstX;
+        dstW += dstX;
+        dstX = 0;
+    }
+    if (dstY < 0) {
+        clipTop = -dstY;
+        dstH += dstY;
+        dstY = 0;
+    }
+    if (dstX + dstW > static_cast<int32_t>(dstWidth))
+        dstW = dstWidth - dstX;
+    if (dstY + dstH > static_cast<int32_t>(dstHeight))
+        dstH = dstHeight - dstY;
+    
+    if (dstW <= 0 || dstH <= 0)
+        return;
+    
+    const uint8_t* srcData = atlas->data;
+    const uint32_t srcWidth = atlas->width;
+    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
+    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+    
+    for (int32_t row = 0; row < dstH; row++) {
+        int32_t screenY = dstY + row;
+        int32_t localY = clipTop + row;
+        
+        float srcYf = (localY + 0.5f) * scaleY;
+        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        if (flipV)
+            srcY = (srcRect.h - 1) - srcY;
+        srcY += srcRect.y;
+        
+        uint32_t dstRowBase = screenY * dstWidth * 4;
+        uint32_t srcRowBase = srcY * srcWidth * 4;
+        
+        for (int32_t col = 0; col < dstW; col++) {
+            int32_t screenX = dstX + col;
+            int32_t localX = clipLeft + col;
+            
+            float srcXf = (localX + 0.5f) * scaleX;
+            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            if (flipH)
+                srcX = (srcRect.w - 1) - srcX;
+            srcX += srcRect.x;
+            
+            uint32_t dstIdx = dstRowBase + screenX * 4;
+            uint32_t srcIdx = srcRowBase + srcX * 4;
+            
+            uint8_t sR = srcData[srcIdx + 0];
+            uint8_t sG = srcData[srcIdx + 1];
+            uint8_t sB = srcData[srcIdx + 2];
+            uint8_t sA = srcData[srcIdx + 3];
+            
+            if (sA == 255) {
+                // Fully opaque pixel - direct copy
+                dstBuffer[dstIdx + 0] = sR;
+                dstBuffer[dstIdx + 1] = sG;
+                dstBuffer[dstIdx + 2] = sB;
+                dstBuffer[dstIdx + 3] = 255;
+            } else if (sA > 0) {
+                // Alpha blend
+                uint8_t dR = dstBuffer[dstIdx + 0];
+                uint8_t dG = dstBuffer[dstIdx + 1];
+                uint8_t dB = dstBuffer[dstIdx + 2];
+                uint8_t dA = dstBuffer[dstIdx + 3];
+                
+                uint32_t inv = 255 - sA;
+                
+                uint8_t outR = ((sR * sA + dR * inv) + 127) / 255;
+                uint8_t outG = ((sG * sA + dG * inv) + 127) / 255;
+                uint8_t outB = ((sB * sA + dB * inv) + 127) / 255;
+                uint8_t outA = ((sA * 255 + dA * inv) + 127) / 255;
+                
+                dstBuffer[dstIdx + 0] = outR;
+                dstBuffer[dstIdx + 1] = outG;
+                dstBuffer[dstIdx + 2] = outB;
+                dstBuffer[dstIdx + 3] = outA;
+            }
+            // If sA == 0, skip (fully transparent)
+        }
+    }
+}
+
+// cam work
+
+
+ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
+                         float worldW, float worldH)
+{
+    // Translate to camera space
+    float dx = worldX - cam.worldX;
+    float dy = worldY - cam.worldY;
+
+    // Rotate by negative camera rotation (inverse transform)
+    float cosA = cosf(-cam.rotation);
+    float sinA = sinf(-cam.rotation);
+
+    float camX = dx * cosA - dy * sinA;
+    float camY = dx * sinA + dy * cosA;
+
+    // Apply zoom
+    camX *= cam.zoom;
+    camY *= cam.zoom;
+
+    // Convert to screen coordinates (camera center = screen center)
+    float screenX = camX + cam.viewWidth / 2.0f;
+    float screenY = camY + cam.viewHeight / 2.0f;
+
+    return {
+        static_cast<int32_t>(screenX),
+        static_cast<int32_t>(screenY),
+        static_cast<uint32_t>(worldW * cam.zoom),
+        static_cast<uint32_t>(worldH * cam.zoom)};
+}
+
+void Renderer::DrawSprite(uint32_t spriteId, size_t bufRefId)
+{
+    //  Debugger::Instance().LogInfo("DrawSprite called - spriteId: " + std::to_string(spriteId) + ", bufRefId: " + std::to_string(bufRefId));
+     
+     // process pending JS writes
+     ProcessPendingRegions(bufRefId);
+     
+
+     AnimatedSprite* sprite = GetSprite(spriteId);
+     if (!sprite) {
+         Debugger::Instance().LogWarn("DrawSprite - Early return: sprite not found (spriteId: " + std::to_string(spriteId) + ")");
+         return;
+     }
+     
+
+     SpriteAtlas* atlas = GetAtlas(sprite->atlasId);
+     if (!atlas) {
+         Debugger::Instance().LogWarn("DrawSprite - Early return: atlas not found (atlasId: " + std::to_string(sprite->atlasId) + ")");
+         return;
+     }
+     
+     //  get js camera state
+     CameraState cam = GetCameraState(bufRefId);
+     
+     // calculate world-space sprite bounds
+     float worldW = sprite->frameWidth * sprite->scaleX;
+     float worldH = sprite->frameHeight * sprite->scaleY;
+     
+     // frustum cull
+     if (!IsInFrustum(cam, sprite->x, sprite->y, worldW, worldH)) {
+        //  Debugger::Instance().LogInfo("DrawSprite - Early return: sprite outside frustum (pos: " + std::to_string(sprite->x) + ", " + std::to_string(sprite->y) + ")");
+         return; // Off-screen, don't draw
+     }
+     
+     // convert to screen space
+     ScreenRect screenRect = WorldToScreen(cam, sprite->x, sprite->y, worldW, worldH);
+     
+
+     std::lock_guard<std::mutex> lock(buffers_mutex_);
+     if (bufRefId >= shared_buffers_ref.size()) {
+         Debugger::Instance().LogWarn("DrawSprite - Early return: bufRefId out of range (bufRefId: " + std::to_string(bufRefId) + ", size: " + std::to_string(shared_buffers_ref.size()) + ")");
+         return;
+     }
+     
+     SharedBufferRefs* s = shared_buffers_ref[bufRefId];
+     if (!s || !s->control) {
+         Debugger::Instance().LogWarn("DrawSprite - Early return: SharedBufferRefs or control is null (bufRefId: " + std::to_string(bufRefId) + ")");
+         return;
+     }
+    
+    std::atomic<uint32_t>* ctrl = reinterpret_cast<std::atomic<uint32_t>*>(s->control);
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    uint8_t* dstBuffer = s->pixel_buffers[js_write];
+    
+    // get frame rect from atlas
+    FrameRect srcRect = GetFrameRect(sprite, sprite->currentFrame);
+    
+    // blit pixels (choose fast path if opaque)
+    if (sprite->opaque) {
+        BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect, 
+                           atlas, srcRect, sprite->flipH, sprite->flipV);
+    } else {
+        BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
+                          atlas, srcRect, sprite->flipH, sprite->flipV);
+    }
+
+    // mark dirty region
+    // Add region for the sprite's screen bounds
+    uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
+    
+    if (dirty_count < MAX_DIRTY_REGIONS) {
+        uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
+        
+        // Clamp to buffer bounds
+        int32_t rx = screenRect.x < 0 ? 0 : screenRect.x;
+        int32_t ry = screenRect.y < 0 ? 0 : screenRect.y;
+        uint32_t rw = screenRect.width;
+        uint32_t rh = screenRect.height;
+        
+        if (rx + rw > s->width)
+            rw = s->width - rx;
+        if (ry + rh > s->height)
+            rh = s->height - ry;
+        
+        ctrl[offset + 0] = rx;
+        ctrl[offset + 1] = ry;
+        ctrl[offset + 2] = rw;
+        ctrl[offset + 3] = rh;
+        
+        ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
+    }
+
+    // Debug output
+    // Debugger::Instance().LogInfo("DrawSprite - ID: " + std::to_string(spriteId) + 
+    //                               " | Atlas: " + std::to_string(sprite->atlasId) +
+    //                               " | Frame: " + std::to_string(sprite->currentFrame));
+    
+    // Debugger::Instance().LogInfo("DrawSprite - World Pos: (" + std::to_string(sprite->x) + 
+    //                               ", " + std::to_string(sprite->y) + 
+    //                               ") | World Size: " + std::to_string(worldW) + 
+    //                               "x" + std::to_string(worldH));
+    
+    // Debugger::Instance().LogInfo("DrawSprite - Screen Rect: (" + std::to_string(screenRect.x) + 
+    //                               ", " + std::to_string(screenRect.y) + 
+    //                               ") | Screen Size: " + std::to_string(screenRect.width) + 
+    //                               "x" + std::to_string(screenRect.height));
+    
+    // Debugger::Instance().LogInfo("DrawSprite - Dirty Region Count: " + std::to_string(dirty_count) + 
+    //                               "/" + std::to_string(MAX_DIRTY_REGIONS) +
+    //                               " | Buffer ID: " + std::to_string(bufRefId) +
+    //                               " | Buffer Size: " + std::to_string(s->width) + 
+    //                               "x" + std::to_string(s->height));
+    
+    // Debugger::Instance().LogInfo("DrawSprite - Scale: (" + std::to_string(sprite->scaleX) + 
+    //                               ", " + std::to_string(sprite->scaleY) + 
+    //                               ") | Flip: H=" + std::to_string(sprite->flipH) + 
+    //                               " V=" + std::to_string(sprite->flipV) +
+    //                               " | Opaque: " + std::to_string(sprite->opaque));
+    
+    // We do NOT swap buffers or set dirty flag here
+    // That only happens on canvas.upload() in javascript, on js has the final say
+}
+
+
 
 // img
 

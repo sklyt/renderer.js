@@ -647,6 +647,37 @@ const data = renderer.getAtlasDataAndFree(atlasId)
 renderer.freeAtlas(atlasId)
 // @param {number} atlasId - atlas identifier to free
 // NOTE: use this after loading if not needed, or let them persist for rendering
+
+// Create an animated sprite from an atlas
+const spriteId = renderer.createSprite(atlasId, frameWidth, frameHeight, frameCount, opaque)
+// @param {number} atlasId - atlas identifier to use
+// @param {number} frameWidth - width of each frame in pixels
+// @param {number} frameHeight - height of each frame in pixels
+// @param {number} frameCount - total number of frames in the atlas
+// @param {boolean} opaque - optional, whether the sprite has no transparency (default: false)
+// @returns {number} spriteId - unique identifier for the sprite (0 on failure)
+
+// Update sprite state (position, rotation, scale, frame, flipping)
+renderer.updateSprite(spriteId, x, y, rotation, scaleX, scaleY, frame, flipH, flipV)
+// @param {number} spriteId - sprite identifier
+// @param {number} x - world position x
+// @param {number} y - world position y
+// @param {number} rotation - rotation in radians
+// @param {number} scaleX - horizontal scale (1.0 = original size)
+// @param {number} scaleY - vertical scale (1.0 = original size)
+// @param {number} frame - current frame index (0 to frameCount-1)
+// @param {boolean} flipH - optional, flip horizontally (default: false)
+// @param {boolean} flipV - optional, flip vertically (default: false)
+
+// Draw a sprite to the screen or render target
+renderer.drawSprite(spriteId, bufRefId)
+// @param {number} spriteId - sprite identifier
+// @param {number} bufRefId - buffer reference to draw to (0 = screen)
+// NOTE: sprite must be updated with updateSprite before drawing
+
+// Destroy a sprite and free resources
+renderer.destroySprite(spriteId)
+// @param {number} spriteId - sprite identifier to destroy
 ```
 
 **Example: Loading and using a sprite atlas**
