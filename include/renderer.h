@@ -11,6 +11,9 @@
 #include <atomic>
 #include <cstdint>
 
+// Forward declare stbi_image_free to avoid including the full stb_image.h here
+extern "C" void stbi_image_free(void *retval_from_stbi_load);
+
 #define CTRL_CAM_WORLD_X 0
 #define CTRL_CAM_WORLD_Y 1
 #define CTRL_CAM_ZOOM 2
@@ -31,6 +34,28 @@
 #define CTRL_DIRTY_REGIONS 15
 
 #define MAX_DIRTY_REGIONS 256
+
+struct SpriteAtlas
+{
+    uint32_t width;
+    uint32_t height;
+    uint8_t *data; // RGBA8 pixel data, owned by this struct
+
+    SpriteAtlas() : width(0), height(0), data(nullptr) {}
+
+    ~SpriteAtlas()
+    {
+        if (data)
+        {
+            stbi_image_free(data); // Correct way to free stb_image data
+            data = nullptr;
+        }
+    }
+
+    // prevent accidental copies
+    SpriteAtlas(const SpriteAtlas &) = delete;
+    SpriteAtlas &operator=(const SpriteAtlas &) = delete;
+};
 
 // Camera state struct
 struct CameraState
@@ -95,6 +120,12 @@ class Renderer
 public:
     Renderer();
     ~Renderer();
+
+    uint32_t LoadAtlas(const std::string &path);
+    SpriteAtlas *GetAtlas(uint32_t atlasId);
+    uint32_t GetAtlasPixel(SpriteAtlas *atlas, uint32_t x, uint32_t y);
+    bool IsAtlasOpaque(SpriteAtlas *atlas);
+    void FreeAtlas(uint32_t atlasId);
 
     struct ImageData
     {
@@ -170,6 +201,9 @@ public:
                            uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                            uint32_t fullWidth, uint32_t fullHeight);
 
+    void ProcessPendingRegions(size_t bufRefId);
+    void PartialTextureUpdate(size_t bufRefId, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+
     void StartAsyncBufferProcessing();
     void StopAsyncBufferProcessing();
 
@@ -183,6 +217,10 @@ private:
     int width_;
     int height_;
     bool initialized_;
+
+    std::unordered_map<uint32_t, SpriteAtlas *> atlases_;
+    uint32_t next_atlas_id_ = 1;
+    std::mutex atlas_mutex_;
 
     // Internal texture management
     TextureId nextTextureId_;

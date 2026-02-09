@@ -213,7 +213,55 @@ public:
     Napi::Value DisableCursor(const Napi::CallbackInfo &info);
     Napi::Value IsCursorOnScreen(const Napi::CallbackInfo &info);
 
-    private:
+    // extend for partial updates
+
+    Napi::Value ProcessPendingRegions(const Napi::CallbackInfo &info)
+    {
+        Napi::Env env = info.Env();
+
+        if (info.Length() < 1 || !info[0].IsNumber())
+        {
+            Napi::TypeError::New(env, "Expected bufferRefId").ThrowAsJavaScriptException();
+            return env.Undefined();
+        }
+
+        size_t bufRefId = info[0].As<Napi::Number>().Uint32Value();
+        renderer_->ProcessPendingRegions(bufRefId);
+
+        return env.Undefined();
+    }
+
+    // sprite 
+
+      Napi::Value LoadAtlas(const Napi::CallbackInfo &info);
+    Napi::Value GetAtlasPixel(const Napi::CallbackInfo &info);
+    Napi::Value IsAtlasOpaque(const Napi::CallbackInfo &info);
+    Napi::Value GetAtlasData(const Napi::CallbackInfo &info);
+    Napi::Value GetAtlasDataAndFree(const Napi::CallbackInfo &info);
+    Napi::Value FreeAtlas(const Napi::CallbackInfo &info);
+
+    // Napi::Value PartialTextureUpdate(const Napi::CallbackInfo &info)
+    // {
+    //     Napi::Env env = info.Env();
+
+    //     if (info.Length() < 5)
+    //     {
+    //         Napi::TypeError::New(env, "Expected (bufRefId, x, y, w, h)").ThrowAsJavaScriptException();
+    //         return env.Undefined();
+    //     }
+
+    //     size_t bufRefId = info[0].As<Napi::Number>().Uint32Value();
+    //     uint32_t x = info[1].As<Napi::Number>().Uint32Value();
+    //     uint32_t y = info[2].As<Napi::Number>().Uint32Value();
+    //     uint32_t w = info[3].As<Napi::Number>().Uint32Value();
+    //     uint32_t h = info[4].As<Napi::Number>().Uint32Value();
+
+    //     renderer_->PartialTextureUpdate(bufRefId, x, y, w, h);
+
+    //     return env.Undefined();
+    // }
+
+private:
     std::unique_ptr<Renderer> renderer_;
     std::vector<Napi::FunctionReference> renderCallbacks_;
     Napi::ObjectReference inputWrapper_;

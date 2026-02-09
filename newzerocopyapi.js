@@ -39,7 +39,7 @@ const views = [
     new Uint8ClampedArray(buffers[2])
 ];
 
-console.log(bufferId)
+
 
 
 let rectx = 100;

@@ -9,7 +9,8 @@
                 "/home/sk/.cache/node-gyp/22.22.0/include/node",
                 "/usr/include",
                 "/usr/local/include",
-                "${workspaceFolder}/node_modules/node-addon-api"
+                "${workspaceFolder}/node_modules/node-addon-api",
+                "${workspaceFolder}/src/vendor"
             ],
             "defines": [
                 "_LINUX",

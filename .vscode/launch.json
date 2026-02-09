@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+     "type": "lldb",
+     "request": "launch",
+     "name": "Launch Program",
+     "program": "/home/sk/.nvm/versions/node/v22.22.0/bin/node",
+     "args": [
+        "${workspaceFolder}/cppcomands.js"
+     ],
+     "cwd": "${workspaceFolder}",
+     "console": "integratedTerminal",
+     "sourceLanguages": ["cpp", "javascript"]
+  }]
+}

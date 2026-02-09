@@ -1,3 +1,6 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include "renderer.h"
 #include <iostream>
 #include <filesystem>
@@ -11,11 +14,15 @@ Renderer::Renderer() : width_(0), height_(0), initialized_(false),
 
 Renderer::~Renderer()
 {
-    if (initialized_)
-    {
-        Shutdown();
-    }
 
+    {
+        std::lock_guard<std::mutex> lock(atlas_mutex_);
+        for (auto &pair : atlases_)
+        {
+            delete pair.second;
+        }
+        atlases_.clear();
+    }
     // Cleanup textures
     for (auto &kv : textures_)
     {
@@ -50,6 +57,11 @@ Renderer::~Renderer()
         delete s;
     }
     shared_buffers_ref.clear();
+
+    if (initialized_)
+    {
+        Shutdown();
+    }
 }
 
 void Renderer::UpdateSizeIfNeeded()
@@ -134,6 +146,85 @@ void Renderer::DrawLine(const Vec2 &start, const Vec2 &end, const Color4 &color,
 void Renderer::DrawText(const std::string &text, const Vec2 &pos, int fontSize, const Color4 &color)
 {
     ::DrawText(text.c_str(), (int)pos.x, (int)pos.y, fontSize, color.ToRaylib());
+}
+
+// sprite
+
+uint32_t Renderer::LoadAtlas(const std::string &path)
+{
+    int width, height, channels;
+
+    // Force RGBA (4 channels)
+    uint8_t *pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+
+    if (!pixels)
+    {
+        Debugger::Instance().LogError("Failed to load atlas: " + path);
+        return 0; // Invalid ID
+    }
+
+    SpriteAtlas *atlas = new SpriteAtlas();
+    atlas->width = static_cast<uint32_t>(width);
+    atlas->height = static_cast<uint32_t>(height);
+    atlas->data = pixels; // Transfer ownership
+
+    std::lock_guard<std::mutex> lock(atlas_mutex_);
+    uint32_t id = next_atlas_id_++;
+    atlases_[id] = atlas;
+
+    Debugger::Instance().LogInfo("Loaded atlas " + std::to_string(id) +
+                                 ": " + std::to_string(width) + "x" + std::to_string(height));
+
+    return id;
+}
+
+SpriteAtlas *Renderer::GetAtlas(uint32_t atlasId)
+{
+     std::lock_guard<std::mutex> lock(atlas_mutex_);
+     auto it = atlases_.find(atlasId);
+     if (it == atlases_.end())
+         return nullptr;
+     return it->second;
+}
+
+uint32_t Renderer::GetAtlasPixel(SpriteAtlas *atlas, uint32_t x, uint32_t y)
+{
+     if (!atlas || x >= atlas->width || y >= atlas->height)
+         return 0;
+
+     uint32_t idx = (y * atlas->width + x) * 4;
+     uint8_t r = atlas->data[idx];
+     uint8_t g = atlas->data[idx + 1];
+     uint8_t b = atlas->data[idx + 2];
+     uint8_t a = atlas->data[idx + 3];
+
+     // Pack into RGBA32
+     return (a << 24) | (b << 16) | (g << 8) | r;
+}
+
+bool Renderer::IsAtlasOpaque(SpriteAtlas *atlas)
+{
+     if (!atlas)
+         return false;
+
+     size_t pixelCount = atlas->width * atlas->height;
+     for (size_t i = 0; i < pixelCount; i++)
+     {
+         if (atlas->data[i * 4 + 3] < 255)
+             return false;
+     }
+     return true;
+}
+
+void Renderer::FreeAtlas(uint32_t atlasId)
+{
+     std::lock_guard<std::mutex> lock(atlas_mutex_);
+     auto it = atlases_.find(atlasId);
+     if (it != atlases_.end())
+     {
+         delete it->second;
+         atlases_.erase(it);
+     }
 }
 
 // img
@@ -350,11 +441,10 @@ void Renderer::RegisterRenderCallback(std::function<void()> callback)
     renderCallbacks_.push_back(callback);
 }
 
-
 CameraState Renderer::GetCameraState(size_t bufRefId)
 {
     CameraState cam = {0};
-    
+
     std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
         return cam;
@@ -365,7 +455,7 @@ CameraState Renderer::GetCameraState(size_t bufRefId)
 
     // Reinterpret control buffer as float*
     float *ctrl_f32 = reinterpret_cast<float *>(s->control);
-    
+
     cam.worldX = ctrl_f32[CTRL_CAM_WORLD_X];
     cam.worldY = ctrl_f32[CTRL_CAM_WORLD_Y];
     cam.zoom = ctrl_f32[CTRL_CAM_ZOOM];
@@ -376,11 +466,11 @@ CameraState Renderer::GetCameraState(size_t bufRefId)
     cam.frustumRight = ctrl_f32[CTRL_CAM_FRUSTUM_RIGHT];
     cam.frustumTop = ctrl_f32[CTRL_CAM_FRUSTUM_TOP];
     cam.frustumBottom = ctrl_f32[CTRL_CAM_FRUSTUM_BOTTOM];
-    
+
     return cam;
 }
 
-bool Renderer::IsInFrustum(const CameraState& cam, float worldX, float worldY, float width, float height)
+bool Renderer::IsInFrustum(const CameraState &cam, float worldX, float worldY, float width, float height)
 {
     float left = worldX - width / 2.0f;
     float right = worldX + width / 2.0f;
@@ -389,7 +479,8 @@ bool Renderer::IsInFrustum(const CameraState& cam, float worldX, float worldY, f
 
     // AABB intersection test
     if (right < cam.frustumLeft || left > cam.frustumRight ||
-        bottom < cam.frustumTop || top > cam.frustumBottom) {
+        bottom < cam.frustumTop || top > cam.frustumBottom)
+    {
         return false; // Outside
     }
 
@@ -404,12 +495,12 @@ bool Renderer::Step()
     Clear(clearColor);
     for (auto &callback : renderCallbacks_)
     {
-        callback(); 
+        callback();
     }
-    
+
     // Keep music streams fed (required for raylib streaming music playback)
     AudioManager::Instance().Update();
-    
+
     EndFrame();
     return !IsWindowClosed();
 }
@@ -453,7 +544,72 @@ void Renderer::SwapBuffers(size_t bufRefId)
     ctrl[CTRL_DIRTY_FLAG].store(0u, std::memory_order_release);
 }
 
-// renderer.cpp
+void Renderer::ProcessPendingRegions(size_t bufRefId)
+{
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+        return;
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
+
+    // Get the CURRENT write buffer that JS is using
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
+
+    if (dirty_count == 0)
+        return; // Nothing to do
+
+    uint8_t *pixel_data = s->pixel_buffers[js_write];
+
+    auto it = textures_.find(s->texture_id);
+    if (it == textures_.end())
+        return;
+
+    Texture2D &texture = it->second;
+
+    // Process all dirty regions
+    if (dirty_count > MAX_DIRTY_REGIONS)
+        dirty_count = MAX_DIRTY_REGIONS;
+
+    for (uint32_t i = 0; i < dirty_count; ++i)
+    {
+        uint32_t offset = CTRL_DIRTY_REGIONS + (i * 4);
+        uint32_t x = ctrl[offset + 0].load(std::memory_order_relaxed);
+        uint32_t y = ctrl[offset + 1].load(std::memory_order_relaxed);
+        uint32_t w = ctrl[offset + 2].load(std::memory_order_relaxed);
+        uint32_t h = ctrl[offset + 3].load(std::memory_order_relaxed);
+
+        if (w == 0 || h == 0)
+            continue;
+
+        UploadRegionToGPU(s->texture_id, pixel_data, x, y, w, h, s->width, s->height);
+    }
+
+    // Clear dirty count - JS can start fresh
+    ctrl[CTRL_DIRTY_COUNT].store(0u, std::memory_order_release);
+}
+
+void Renderer::PartialTextureUpdate(size_t bufRefId, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s)
+        return;
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    uint8_t *pixel_data = s->pixel_buffers[js_write];
+
+    UploadRegionToGPU(s->texture_id, pixel_data, x, y, w, h, s->width, s->height);
+}
+
 void Renderer::ProcessDirtyRegions(size_t bufRefId, uint32_t buffer_idx)
 {
     // std::lock_guard<std::mutex> lock(buffers_mutex_);

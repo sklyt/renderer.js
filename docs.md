@@ -24,6 +24,7 @@ raylib renders it.
       - [Font](#font)
     + [Input](#input)
     + [Image](#image)
+    + [Sprites and Spritesheets](#sprites-and-spritesheets)
     + [Sound](#sound)
     + [Utils](#utils)
       - [Window & Monitor Management](#window--monitor-management)
@@ -608,6 +609,85 @@ import {drawAtlasRegionToCanvas, imageToCanvas} from "tessera.js"
 
 
 export function genFrames(rows, cols, startX, startY, tileSize) // utility for spritesheet to frames
+```
+
+### Sprites and Spritesheets
+
+Load and manage sprite atlases efficiently with direct pixel access and memory control.
+
+```js
+// Load a sprite atlas from a file path
+const atlasId = renderer.loadAtlas(imagePath)
+// @returns {number} atlasId - unique identifier for the loaded atlas (0 on failure)
+
+// Get a single pixel from the atlas
+const pixel = renderer.getAtlasPixel(atlasId, x, y)
+// @param {number} atlasId - atlas identifier
+// @param {number} x - pixel x coordinate
+// @param {number} y - pixel y coordinate
+// @returns {number} packed RGBA pixel value (0 on out of bounds)
+
+// Check if the entire atlas is fully opaque (no transparency)
+const isOpaque = renderer.isAtlasOpaque(atlasId)
+// @param {number} atlasId - atlas identifier
+// @returns {boolean} true if all pixels have full alpha (255), false if any transparent
+
+// Get atlas pixel data without freeing
+const data = renderer.getAtlasData(atlasId)
+// @param {number} atlasId - atlas identifier
+// @returns {{width: number, height: number, data: Uint8Array}} atlas metadata and RGBA pixel data
+
+// Get atlas data and automatically free resources
+const data = renderer.getAtlasDataAndFree(atlasId)
+// @param {number} atlasId - atlas identifier
+// @returns {{width: number, height: number, data: Uint8Array}} atlas metadata and RGBA pixel data
+// NOTE: atlas is freed after data is copied, handle is invalid after call
+
+// Manually free an atlas from memory
+renderer.freeAtlas(atlasId)
+// @param {number} atlasId - atlas identifier to free
+// NOTE: use this after loading if not needed, or let them persist for rendering
+```
+
+**Example: Loading and using a sprite atlas**
+
+```js
+// Load atlas
+const atlasId = renderer.loadAtlas("./sprites/characters.png");
+if (atlasId === 0) {
+    console.error("Failed to load atlas");
+    process.exit(1);
+}
+
+// Check properties
+const data = renderer.getAtlasData(atlasId);
+console.log(`Atlas: ${data.width}x${data.height} (${data.data.byteLength} bytes)`);
+
+const opaque = renderer.isAtlasOpaque(atlasId);
+console.log(`Opaque: ${opaque}`);
+
+// Sample a pixel at (0, 0)
+const pixelColor = renderer.getAtlasPixel(atlasId, 0, 0);
+const r = (pixelColor & 0xFF);
+const g = (pixelColor & 0xFF00) >> 8;
+const b = (pixelColor & 0xFF0000) >> 16;
+const a = (pixelColor & 0xFF000000) >> 24;
+console.log(`Pixel at (0,0): RGBA(${r}, ${g}, ${b}, ${a})`);
+
+// When done, free the memory
+renderer.freeAtlas(atlasId);
+```
+
+**Example: Load, process, and free in one call**
+
+```js
+// Useful when you need the data temporarily (e.g., for processing or uploading to GPU)
+const atlasData = renderer.getAtlasDataAndFree(atlasId);
+
+// Process the data...
+processAtlasData(atlasData);
+
+// atlasId is now invalid - automatically freed
 ```
 
 ### Sound

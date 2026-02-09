@@ -1,8 +1,13 @@
+
 #include "renderer_wrapper.h"
 #include <iostream>
 #include "console_control.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "vendor/stb_image.h"
+
+// Forward declare stb_image functions
+extern "C" {
+    unsigned char *stbi_load(char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
+    void stbi_image_free(void *retval_from_stbi_load);
+}
 
 Napi::FunctionReference RendererWrapper::constructor;
 
@@ -120,6 +125,17 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            // migrating to zero copy
                                                            InstanceMethod("initSharedBuffers", &RendererWrapper::InitSharedBuffers),
 
+                                                           // extending to support internal cpp commands
+                                                             InstanceMethod("processPendingRegions", &RendererWrapper::ProcessPendingRegions),
+                                                                 InstanceMethod("loadAtlas", &RendererWrapper::LoadAtlas),
+                                                                 InstanceMethod("getAtlasPixel", &RendererWrapper::GetAtlasPixel),
+                                                                 InstanceMethod("isAtlasOpaque", &RendererWrapper::IsAtlasOpaque),
+                                                                 InstanceMethod("getAtlasData", &RendererWrapper::GetAtlasData),
+                                                                 InstanceMethod("getAtlasDataAndFree", &RendererWrapper::GetAtlasDataAndFree),
+                                                                 InstanceMethod("freeAtlas", &RendererWrapper::FreeAtlas),
+                                                           
+
+
                                                            });
 
     constructor = Napi::Persistent(func);
@@ -142,6 +158,163 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
 
 RendererWrapper::RendererWrapper(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<RendererWrapper>(info), renderer_(std::make_unique<Renderer>()) {}
+
+
+
+// sprite 
+
+Napi::Value RendererWrapper::LoadAtlas(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+     
+     if (info.Length() < 1 || !info[0].IsString())
+     {
+         Napi::TypeError::New(env, "Expected string path").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+     
+     std::string path = info[0].As<Napi::String>().Utf8Value();
+     uint32_t atlasId = renderer_->LoadAtlas(path);
+     
+     if (atlasId == 0) {
+         Napi::Error::New(env, "Failed to load atlas: " + path).ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+     
+     return Napi::Number::New(env, atlasId);
+}
+
+Napi::Value RendererWrapper::GetAtlasPixel(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+
+     if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber())
+     {
+         Napi::TypeError::New(env, "Expected (atlasId, x, y)").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+     uint32_t x = info[1].As<Napi::Number>().Uint32Value();
+     uint32_t y = info[2].As<Napi::Number>().Uint32Value();
+
+     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+     if (!atlas)
+     {
+         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t pixel = renderer_->GetAtlasPixel(atlas, x, y);
+     return Napi::Number::New(env, pixel);
+}
+
+Napi::Value RendererWrapper::IsAtlasOpaque(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+
+     if (info.Length() < 1 || !info[0].IsNumber())
+     {
+         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+     if (!atlas)
+     {
+         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     bool opaque = renderer_->IsAtlasOpaque(atlas);
+     return Napi::Boolean::New(env, opaque);
+}
+
+Napi::Value RendererWrapper::GetAtlasData(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+
+     if (info.Length() < 1 || !info[0].IsNumber())
+     {
+         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+     if (!atlas)
+     {
+         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     Napi::Object result = Napi::Object::New(env);
+     result.Set("width", Napi::Number::New(env, atlas->width));
+     result.Set("height", Napi::Number::New(env, atlas->height));
+
+     // Create Uint8Array from pixel data
+     size_t dataSize = atlas->width * atlas->height * 4;
+     Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
+     memcpy(arrayBuffer.Data(), atlas->data, dataSize);
+     Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
+
+     result.Set("data", uint8Array);
+
+     return result;
+}
+
+Napi::Value RendererWrapper::GetAtlasDataAndFree(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+
+     if (info.Length() < 1 || !info[0].IsNumber())
+     {
+         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+     SpriteAtlas *atlas = renderer_->GetAtlas(atlasId);
+     if (!atlas)
+     {
+         Napi::Error::New(env, "Atlas not found").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     Napi::Object result = Napi::Object::New(env);
+     result.Set("width", Napi::Number::New(env, atlas->width));
+     result.Set("height", Napi::Number::New(env, atlas->height));
+
+     // Create Uint8Array from pixel data
+     size_t dataSize = atlas->width * atlas->height * 4;
+     Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
+     memcpy(arrayBuffer.Data(), atlas->data, dataSize);
+     Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
+
+     result.Set("data", uint8Array);
+
+     // Free the atlas after copying data
+     renderer_->FreeAtlas(atlasId);
+
+     return result;
+}
+
+Napi::Value RendererWrapper::FreeAtlas(const Napi::CallbackInfo &info)
+{
+     Napi::Env env = info.Env();
+
+     if (info.Length() < 1 || !info[0].IsNumber())
+     {
+         Napi::TypeError::New(env, "Expected atlasId").ThrowAsJavaScriptException();
+         return env.Undefined();
+     }
+
+     uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+     renderer_->FreeAtlas(atlasId);
+
+     return env.Undefined();
+}
 
 // migrate to shared buffer
 
