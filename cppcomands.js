@@ -65,6 +65,50 @@ console.log(renderer.isAtlasOpaque(atlasId))
 // console.log(renderer.getAtlasDataAndFree(atlasId))
 // console.log(renderer.freeAtlas(atlas2))
 const spriteId = renderer.createSprite(atlas2, 32, 32, 8, true);
+const spriteId2 = renderer.createSpriteWithAnimations(
+    atlas2,
+    32, 32,
+    {
+        idle: { frames: [0, 1], fps: 4, loop: true },
+        walk: { frames: [2, 3, 4, 5], fps: 8, loop: true },
+        jump: { frames: [6, 7], fps: 10, loop: false }
+    },
+    true // opaque
+);
+
+const animatorId = renderer.createAnimator({
+    up: {
+        frames: [
+            "./assets/playerGrey_up1.png",
+            "./assets/playerGrey_up2.png"
+        ],
+        fps: 6,
+        loop: true
+    },
+    walk: {
+        frames: [
+            "./assets/playerGrey_walk1.png",
+            "./assets/playerGrey_walk2.png"
+        ],
+        fps: 6,
+        loop: true
+    }
+});
+
+console.log("animator id: ", animatorId)
+
+// // Update transform
+// renderer.updateAnimator(animatorId, x, y, rotation, scaleX, scaleY, flipH, flipV);
+
+// // Play animation
+// renderer.playAnimatorAnimation(animatorId, "walk");
+
+// // Update timing
+// renderer.updateAnimators(delta);
+
+// // Draw
+// renderer.drawAnimator(animatorId, canvas.textureId);
+
 console.log("Created sprite:", spriteId);
 renderer.updateSprite(
     spriteId,
@@ -77,6 +121,19 @@ renderer.updateSprite(
     false,  // flipH
     false   // flipV
 );
+
+renderer.updateSprite(
+    spriteId2,
+    0,    // x
+    0,    // y
+    0,      // rotation
+    2.0,    // scaleX
+    2.0,    // scaleY
+    0,      // frame
+    false,  // flipH
+    false   // flipV
+);
+renderer.playAnimation(spriteId2, "idle");
 console.log("Updated sprite position to (400, 300)");
 const sprite2 = renderer.createSprite(atlasId, 32, 32, 8, true);
 const sprite3 = renderer.createSprite(atlasId, 32, 32, 8, true);
@@ -150,8 +207,15 @@ const clear = (r, g, b, a = 255, buffer = undefined) => {
 
 }
 let frame = 0;
+let lastTime = performance.now();
 function loop() {
     const startTime = performance.now();
+    const now = performance.now();
+    const delta = (now - lastTime) / 1000.0; // Convert to seconds
+    lastTime = now;
+
+    // Update animations (C++ advances frames)
+    renderer.updateSpriteAnimations(delta);
     clear(50, 50, 50, canvas.data.buffer); // JS writes background
     canvas.updateCamera(camera);
     const buffer = canvas.getCurrentBuffer();
@@ -190,6 +254,7 @@ function loop() {
     }
     canvas.markRegion(300, 300, 50, 50);
     renderer.drawSprite(spriteId, canvas.textureId);
+    renderer.drawSprite(spriteId2, canvas.textureId);
 
     // Animate
     frame = (frame + 1) % 8;

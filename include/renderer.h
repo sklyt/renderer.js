@@ -57,6 +57,27 @@ struct SpriteAtlas
     SpriteAtlas &operator=(const SpriteAtlas &) = delete;
 };
 
+struct SpriteAnimation
+{
+    std::string name; // "idle", "walk", "jump"
+    uint32_t id;      // Numeric ID (for fast lookup)
+    uint32_t *frames; // Frame sequence [0,1,2,3]
+    uint32_t frameCount;
+    float fps;
+    bool loop;
+
+    SpriteAnimation() : frames(nullptr), frameCount(0), fps(0), id(0), loop(false) {}
+
+    ~SpriteAnimation()
+    {
+        if (frames)
+        {
+            delete[] frames;
+            frames = nullptr;
+        }
+    }
+};
+
 struct AnimatedSprite
 {
     uint32_t atlasId;      // Which atlas to blit from
@@ -78,6 +99,11 @@ struct AnimatedSprite
 
     // Modulate color (tint)
     uint8_t modR, modG, modB, modA;
+
+    std::unordered_map<uint32_t, SpriteAnimation *> animations; // ID -> anim
+    std::unordered_map<std::string, uint32_t> animationNames;   // "idle" -> ID
+
+    uint32_t currentAnimationId;
 
     // Animation state (optional, can be driven by JS or C++)
     uint32_t *frameSequence; // Array of frame indices
@@ -102,6 +128,71 @@ struct AnimatedSprite
             delete[] frameSequence;
             frameSequence = nullptr;
         }
+
+        for (auto &pair : animations)
+        {
+            delete pair.second;
+        }
+        animations.clear();
+    }
+};
+
+struct AnimationDef
+{
+    std::string name;
+    std::vector<uint32_t> frames;
+    float fps;
+    bool loop;
+};
+
+// animator for loose sprites
+
+struct AnimatorFrame
+{
+    uint32_t atlasId;
+    uint32_t width;
+    uint32_t height;
+};
+
+// Multi-atlas animation sequence
+struct MultiAtlasAnimation
+{
+    std::string name;
+    uint32_t id;
+    std::vector<AnimatorFrame> frames;
+    float fps;
+    bool loop;
+};
+
+// Animator (handles different atlases per frame)
+struct Animator
+{
+    float x, y;
+    float rotation;
+    float scaleX, scaleY;
+    uint8_t flipH, flipV;
+    uint8_t modR, modG, modB, modA;
+
+    std::unordered_map<uint32_t, MultiAtlasAnimation *> animations;
+    std::unordered_map<std::string, uint32_t> animationNames;
+
+    uint32_t currentAnimationId;
+    uint32_t currentFrameIndex;
+    float frameTimer;
+    uint8_t playing;
+
+    Animator() : x(0), y(0), rotation(0), scaleX(1), scaleY(1),
+                 flipH(0), flipV(0), modR(255), modG(255), modB(255), modA(255),
+                 currentAnimationId(0), currentFrameIndex(0),
+                 frameTimer(0), playing(0) {}
+
+    ~Animator()
+    {
+        for (auto &pair : animations)
+        {
+            delete pair.second;
+        }
+        animations.clear();
     }
 };
 
@@ -115,7 +206,8 @@ struct CameraState
     float frustumLeft, frustumRight, frustumTop, frustumBottom;
 };
 
-struct ScreenRect {
+struct ScreenRect
+{
     int32_t x, y;
     uint32_t width, height;
 };
@@ -190,6 +282,27 @@ public:
     void DrawSprite(uint32_t spriteId, size_t bufRefId);
     void DestroySprite(uint32_t spriteId);
 
+    uint32_t CreateSpriteWithAnimations(uint32_t atlasId, uint32_t frameWidth,
+                                        uint32_t frameHeight, bool opaque,
+                                        const std::vector<AnimationDef> &animations);
+    void PlayAnimation(uint32_t spriteId, const std::string &animName);
+    void PlayAnimationById(uint32_t spriteId, uint32_t animId);
+    void UpdateSpriteAnimations(float deltaTime);
+
+    // animator
+    uint32_t CreateAnimator(const std::vector<std::string> &animNames,
+                            const std::vector<std::vector<std::string>> &framePaths,
+                            const std::vector<float> &fpsList,
+                            const std::vector<bool> &loopList);
+
+    void UpdateAnimator(uint32_t animatorId, float x, float y, float rotation,
+                        float scaleX, float scaleY, bool flipH, bool flipV);
+
+    void PlayAnimatorAnimation(uint32_t animatorId, const std::string &animName);
+    void DrawAnimator(uint32_t animatorId, size_t bufRefId);
+    void UpdateAnimators(float deltaTime);
+    void DestroyAnimator(uint32_t animatorId);
+
     struct ImageData
     {
         std::vector<uint8_t> data;
@@ -201,7 +314,6 @@ public:
 
     CameraState GetCameraState(size_t bufRefId);
     bool IsInFrustum(const CameraState &cam, float worldX, float worldY, float width, float height);
-    
 
     ImageData LoadImageFromFile(const std::string &path);
     void UnloadImageData(ImageData &imageData);
@@ -289,6 +401,9 @@ private:
     uint32_t next_sprite_id_ = 1;
     std::mutex sprite_mutex_;
 
+    std::unordered_map<uint32_t, Animator *> animators_;
+    uint32_t next_animator_id_ = 1;
+    std::mutex animator_mutex_;
     // Internal texture management
     TextureId nextTextureId_;
     TextureId nextRenderTextureId_;

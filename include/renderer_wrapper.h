@@ -245,6 +245,17 @@ public:
     Napi::Value UpdateSprite(const Napi::CallbackInfo &info);
     Napi::Value DrawSprite(const Napi::CallbackInfo &info);
     Napi::Value DestroySprite(const Napi::CallbackInfo &info);
+    Napi::Value CreateSpriteWithAnimations(const Napi::CallbackInfo &info);
+    Napi::Value PlayAnimation(const Napi::CallbackInfo &info);
+    Napi::Value UpdateSpriteAnimations(const Napi::CallbackInfo &info);
+    
+    // animator
+    Napi::Value CreateAnimator(const Napi::CallbackInfo &info);
+    Napi::Value UpdateAnimator(const Napi::CallbackInfo &info);
+    Napi::Value PlayAnimatorAnimation(const Napi::CallbackInfo &info);
+    Napi::Value DrawAnimator(const Napi::CallbackInfo &info);
+    Napi::Value UpdateAnimators(const Napi::CallbackInfo &info);
+    Napi::Value DestroyAnimator(const Napi::CallbackInfo &info);
     // Napi::Value PartialTextureUpdate(const Napi::CallbackInfo &info)
     // {
     //     Napi::Env env = info.Env();

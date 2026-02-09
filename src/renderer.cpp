@@ -668,6 +668,359 @@ void Renderer::DrawSprite(uint32_t spriteId, size_t bufRefId)
 }
 
 
+// anim 
+
+
+uint32_t Renderer::CreateSpriteWithAnimations(uint32_t atlasId, uint32_t frameWidth,
+                                              uint32_t frameHeight, bool opaque,
+                                              const std::vector<AnimationDef>& animations)
+{
+    // Create base sprite
+    AnimatedSprite* sprite = new AnimatedSprite();
+    sprite->atlasId = atlasId;
+    sprite->frameWidth = frameWidth;
+    sprite->frameHeight = frameHeight;
+    sprite->framesPerRow = 0; // Will be set from atlas
+    sprite->opaque = opaque ? 1 : 0;
+    
+    // Calculate frames per row from atlas
+    SpriteAtlas* atlas = GetAtlas(atlasId);
+    if (atlas) {
+        sprite->framesPerRow = atlas->width / frameWidth;
+    }
+    
+    // Load animations
+    uint32_t nextAnimId = 1;
+    for (const auto& animDef : animations) {
+        SpriteAnimation* anim = new SpriteAnimation();
+        anim->name = animDef.name;
+        anim->id = nextAnimId++;
+        anim->fps = animDef.fps;
+        anim->loop = animDef.loop;
+        anim->frameCount = animDef.frames.size();
+        
+        // Copy frame array
+        anim->frames = new uint32_t[anim->frameCount];
+        for (size_t i = 0; i < anim->frameCount; i++) {
+            anim->frames[i] = animDef.frames[i];
+        }
+        
+        // Store in dictionaries
+        sprite->animations[anim->id] = anim;
+        sprite->animationNames[anim->name] = anim->id;
+    }
+    
+    // Set initial frame to first frame of first animation (if any)
+    if (!animations.empty() && animations[0].frames.size() > 0) {
+        sprite->currentFrame = animations[0].frames[0];
+    }
+    
+    // Register sprite
+    std::lock_guard<std::mutex> lock(sprite_mutex_);
+    uint32_t id = next_sprite_id_++;
+    sprites_[id] = sprite;
+    
+    Debugger::Instance().LogInfo("Created sprite " + std::to_string(id) + 
+                                 " with " + std::to_string(animations.size()) + " animations");
+    
+    return id;
+}
+
+void Renderer::PlayAnimation(uint32_t spriteId, const std::string& animName)
+{
+    AnimatedSprite* sprite = GetSprite(spriteId);
+    if (!sprite)
+        return;
+    
+    // Lookup animation ID by name
+    auto it = sprite->animationNames.find(animName);
+    if (it == sprite->animationNames.end()) {
+        Debugger::Instance().LogWarn("Animation '" + animName + "' not found on sprite " + 
+                                        std::to_string(spriteId));
+        return;
+    }
+    
+    PlayAnimationById(spriteId, it->second);
+}
+
+void Renderer::PlayAnimationById(uint32_t spriteId, uint32_t animId)
+{
+    AnimatedSprite* sprite = GetSprite(spriteId);
+    if (!sprite)
+        return;
+    
+    // Get animation
+    auto it = sprite->animations.find(animId);
+    if (it == sprite->animations.end())
+        return;
+    
+    SpriteAnimation* anim = it->second;
+    
+    // Switch to this animation
+    sprite->currentAnimationId = animId;
+    sprite->playing = 1;
+    sprite->frameTimer = 0.0f;
+    
+    // Set first frame
+    if (anim->frameCount > 0) {
+        sprite->currentFrame = anim->frames[0];
+    }
+}
+
+
+void Renderer::UpdateSpriteAnimations(float deltaTime)
+{
+    std::lock_guard<std::mutex> lock(sprite_mutex_);
+    
+    for (auto& pair : sprites_) {
+        AnimatedSprite* sprite = pair.second;
+        
+        if (!sprite->playing || sprite->currentAnimationId == 0)
+            continue;
+        
+        // Get current animation
+        auto it = sprite->animations.find(sprite->currentAnimationId);
+        if (it == sprite->animations.end())
+            continue;
+        
+        SpriteAnimation* anim = it->second;
+        
+        float frameDuration = 1.0f / anim->fps;
+        sprite->frameTimer += deltaTime;
+        
+        // Advance frames
+        while (sprite->frameTimer >= frameDuration) {
+            sprite->frameTimer -= frameDuration;
+            
+            // Find current frame index
+            uint32_t currentIdx = 0;
+            for (uint32_t i = 0; i < anim->frameCount; i++) {
+                if (anim->frames[i] == sprite->currentFrame) {
+                    currentIdx = i;
+                    break;
+                }
+            }
+            
+            // Advance
+            currentIdx++;
+            
+            // Check end
+            if (currentIdx >= anim->frameCount) {
+                if (anim->loop) {
+                    currentIdx = 0;
+                } else {
+                    currentIdx = anim->frameCount - 1;
+                    sprite->playing = 0;
+                    break;
+                }
+            }
+            
+            sprite->currentFrame = anim->frames[currentIdx];
+        }
+    }
+}
+
+uint32_t Renderer::CreateAnimator(const std::vector<std::string>& animNames,
+                                  const std::vector<std::vector<std::string>>& framePaths,
+                                  const std::vector<float>& fpsList,
+                                  const std::vector<bool>& loopList)
+{
+    Animator* animator = new Animator();
+    
+    uint32_t nextAnimId = 1;
+    for (size_t i = 0; i < animNames.size(); i++) {
+        MultiAtlasAnimation* anim = new MultiAtlasAnimation();
+        anim->name = animNames[i];
+        anim->id = nextAnimId++;
+        anim->fps = fpsList[i];
+        anim->loop = loopList[i];
+        
+        // Load each frame's atlas
+        for (const std::string& path : framePaths[i]) {
+            uint32_t atlasId = LoadAtlas(path);
+            
+            if (atlasId == 0) {
+                Debugger::Instance().LogError("Failed to load animator frame: " + path);
+                continue;
+            }
+            
+            SpriteAtlas* atlas = GetAtlas(atlasId);
+            AnimatorFrame frame;
+            frame.atlasId = atlasId;
+            frame.width = atlas->width;
+            frame.height = atlas->height;
+            
+            anim->frames.push_back(frame);
+        }
+        
+        animator->animations[anim->id] = anim;
+        animator->animationNames[anim->name] = anim->id;
+        
+        Debugger::Instance().LogInfo("Loaded animation '" + anim->name + 
+                                     "' with " + std::to_string(anim->frames.size()) + " frames");
+    }
+    
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    uint32_t id = next_animator_id_++;
+    animators_[id] = animator;
+    
+    return id;
+}
+
+void Renderer::UpdateAnimator(uint32_t animatorId, float x, float y, float rotation,
+                              float scaleX, float scaleY, bool flipH, bool flipV)
+{
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    auto it = animators_.find(animatorId);
+    if (it == animators_.end())
+        return;
+    
+    Animator* anim = it->second;
+    anim->x = x;
+    anim->y = y;
+    anim->rotation = rotation;
+    anim->scaleX = scaleX;
+    anim->scaleY = scaleY;
+    anim->flipH = flipH ? 1 : 0;
+    anim->flipV = flipV ? 1 : 0;
+}
+
+void Renderer::PlayAnimatorAnimation(uint32_t animatorId, const std::string& animName)
+{
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    auto it = animators_.find(animatorId);
+    if (it == animators_.end())
+        return;
+    
+    Animator* animator = it->second;
+    auto nameIt = animator->animationNames.find(animName);
+    if (nameIt == animator->animationNames.end())
+        return;
+    
+    animator->currentAnimationId = nameIt->second;
+    animator->currentFrameIndex = 0;
+    animator->frameTimer = 0.0f;
+    animator->playing = 1;
+}
+
+void Renderer::DrawAnimator(uint32_t animatorId, size_t bufRefId)
+{
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    auto it = animators_.find(animatorId);
+    if (it == animators_.end())
+        return;
+    
+    Animator* animator = it->second;
+    
+    if (animator->currentAnimationId == 0)
+        return;
+    
+    auto animIt = animator->animations.find(animator->currentAnimationId);
+    if (animIt == animator->animations.end())
+        return;
+    
+    MultiAtlasAnimation* anim = animIt->second;
+    
+    if (animator->currentFrameIndex >= anim->frames.size())
+        return;
+    
+    // Get current frame
+    AnimatorFrame& frame = anim->frames[animator->currentFrameIndex];
+    SpriteAtlas* atlas = GetAtlas(frame.atlasId);
+    if (!atlas)
+        return;
+    
+    // Get camera
+    CameraState cam = GetCameraState(bufRefId);
+    
+    // Calculate world bounds
+    float worldW = frame.width * animator->scaleX;
+    float worldH = frame.height * animator->scaleY;
+    
+    // Frustum cull
+    if (!IsInFrustum(cam, animator->x, animator->y, worldW, worldH))
+        return;
+    
+    // Convert to screen
+    ScreenRect screenRect = WorldToScreen(cam, animator->x, animator->y, worldW, worldH);
+    
+    // Get write buffer
+    std::lock_guard<std::mutex> bufLock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+    
+    SharedBufferRefs* s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+        return;
+    
+    std::atomic<uint32_t>* ctrl = reinterpret_cast<std::atomic<uint32_t>*>(s->control);
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    uint8_t* dstBuffer = s->pixel_buffers[js_write];
+    
+    // Source rect is entire atlas (loose sprite)
+    FrameRect srcRect = { 0, 0, frame.width, frame.height };
+    
+    // Blit (assume non-opaque for loose sprites)
+    BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
+                      atlas, srcRect, animator->flipH, animator->flipV);
+    
+    // Mark dirty
+    uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
+    if (dirty_count < MAX_DIRTY_REGIONS) {
+        uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
+        ctrl[offset + 0] = screenRect.x;
+        ctrl[offset + 1] = screenRect.y;
+        ctrl[offset + 2] = screenRect.width;
+        ctrl[offset + 3] = screenRect.height;
+        ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
+    }
+}
+
+void Renderer::UpdateAnimators(float deltaTime)
+{
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    
+    for (auto& pair : animators_) {
+        Animator* animator = pair.second;
+        
+        if (!animator->playing || animator->currentAnimationId == 0)
+            continue;
+        
+        auto it = animator->animations.find(animator->currentAnimationId);
+        if (it == animator->animations.end())
+            continue;
+        
+        MultiAtlasAnimation* anim = it->second;
+        
+        float frameDuration = 1.0f / anim->fps;
+        animator->frameTimer += deltaTime;
+        
+        while (animator->frameTimer >= frameDuration) {
+            animator->frameTimer -= frameDuration;
+            animator->currentFrameIndex++;
+            
+            if (animator->currentFrameIndex >= anim->frames.size()) {
+                if (anim->loop) {
+                    animator->currentFrameIndex = 0;
+                } else {
+                    animator->currentFrameIndex = anim->frames.size() - 1;
+                    animator->playing = 0;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void Renderer::DestroyAnimator(uint32_t animatorId)
+{
+    std::lock_guard<std::mutex> lock(animator_mutex_);
+    auto it = animators_.find(animatorId);
+    if (it != animators_.end()) {
+        delete it->second;
+        animators_.erase(it);
+    }
+}
 
 // img
 

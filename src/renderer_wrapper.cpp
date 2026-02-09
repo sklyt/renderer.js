@@ -138,8 +138,16 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("updateSprite", &RendererWrapper::UpdateSprite),
                                                            InstanceMethod("drawSprite", &RendererWrapper::DrawSprite),
                                                            InstanceMethod("destroySprite", &RendererWrapper::DestroySprite),
-
-                                                       });
+                                                           InstanceMethod("createSpriteWithAnimations", &RendererWrapper::CreateSpriteWithAnimations),
+                                                           InstanceMethod("playAnimation", &RendererWrapper::PlayAnimation),
+                                                           InstanceMethod("updateSpriteAnimations", &RendererWrapper::UpdateSpriteAnimations),
+                                                           InstanceMethod("createAnimator", &RendererWrapper::CreateAnimator),
+                                                           InstanceMethod("updateAnimator", &RendererWrapper::UpdateAnimator),
+                                                           InstanceMethod("playAnimatorAnimation", &RendererWrapper::PlayAnimatorAnimation),
+                                                           InstanceMethod("drawAnimator", &RendererWrapper::DrawAnimator),
+                                                           InstanceMethod("updateAnimators", &RendererWrapper::UpdateAnimators),
+                                                           InstanceMethod("destroyAnimator", &RendererWrapper::DestroyAnimator),
+                                                           });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -401,6 +409,239 @@ Napi::Value RendererWrapper::DestroySprite(const Napi::CallbackInfo &info)
 
     uint32_t spriteId = info[0].As<Napi::Number>().Uint32Value();
     renderer_->DestroySprite(spriteId);
+
+    return env.Undefined();
+}
+
+// anime
+
+// Animator wrappers
+Napi::Value RendererWrapper::CreateAnimator(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsObject())
+    {
+        Napi::TypeError::New(env, "Expected animation definitions object").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    Napi::Object animDefs = info[0].As<Napi::Object>();
+    Napi::Array animNames = animDefs.GetPropertyNames();
+
+    std::vector<std::string> nameList;
+    std::vector<std::vector<std::string>> framePathsList;
+    std::vector<float> fpsList;
+    std::vector<bool> loopList;
+
+    // Parse each animation definition
+    for (uint32_t i = 0; i < animNames.Length(); i++)
+    {
+        std::string animName = animNames.Get(i).As<Napi::String>().Utf8Value();
+        Napi::Object animDef = animDefs.Get(animName).As<Napi::Object>();
+
+        nameList.push_back(animName);
+
+        // Parse frames array
+        Napi::Array framesArray = animDef.Get("frames").As<Napi::Array>();
+        std::vector<std::string> framePaths;
+        for (uint32_t j = 0; j < framesArray.Length(); j++)
+        {
+            framePaths.push_back(framesArray.Get(j).As<Napi::String>().Utf8Value());
+        }
+        framePathsList.push_back(framePaths);
+
+        // Parse fps
+        fpsList.push_back(animDef.Get("fps").As<Napi::Number>().FloatValue());
+
+        // Parse loop
+        loopList.push_back(animDef.Get("loop").As<Napi::Boolean>().Value());
+    }
+
+    uint32_t animatorId = renderer_->CreateAnimator(nameList, framePathsList, fpsList, loopList);
+
+    if (animatorId == 0)
+    {
+        Napi::Error::New(env, "Failed to create animator").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    return Napi::Number::New(env, animatorId);
+}
+
+Napi::Value RendererWrapper::UpdateAnimator(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 8)
+    {
+        Napi::TypeError::New(env, "Expected (animatorId, x, y, rotation, scaleX, scaleY, flipH, flipV)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t animatorId = info[0].As<Napi::Number>().Uint32Value();
+    float x = info[1].As<Napi::Number>().FloatValue();
+    float y = info[2].As<Napi::Number>().FloatValue();
+    float rotation = info[3].As<Napi::Number>().FloatValue();
+    float scaleX = info[4].As<Napi::Number>().FloatValue();
+    float scaleY = info[5].As<Napi::Number>().FloatValue();
+    bool flipH = info[6].As<Napi::Boolean>().Value();
+    bool flipV = info[7].As<Napi::Boolean>().Value();
+
+    renderer_->UpdateAnimator(animatorId, x, y, rotation, scaleX, scaleY, flipH, flipV);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::PlayAnimatorAnimation(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsString())
+    {
+        Napi::TypeError::New(env, "Expected (animatorId, animName)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t animatorId = info[0].As<Napi::Number>().Uint32Value();
+    std::string animName = info[1].As<Napi::String>().Utf8Value();
+
+    renderer_->PlayAnimatorAnimation(animatorId, animName);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DrawAnimator(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected (animatorId, bufRefId)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t animatorId = info[0].As<Napi::Number>().Uint32Value();
+    size_t bufRefId = info[1].As<Napi::Number>().Uint32Value();
+
+    renderer_->DrawAnimator(animatorId, bufRefId);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::UpdateAnimators(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected deltaTime").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    float deltaTime = info[0].As<Napi::Number>().FloatValue();
+    renderer_->UpdateAnimators(deltaTime);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DestroyAnimator(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected animatorId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t animatorId = info[0].As<Napi::Number>().Uint32Value();
+    renderer_->DestroyAnimator(animatorId);
+
+    return env.Undefined();
+}
+
+// renderer_wrapper.cpp
+
+Napi::Value RendererWrapper::CreateSpriteWithAnimations(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 4 || !info[3].IsObject())
+    {
+        Napi::TypeError::New(env, "Expected (atlasId, frameWidth, frameHeight, animations)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t atlasId = info[0].As<Napi::Number>().Uint32Value();
+    uint32_t frameWidth = info[1].As<Napi::Number>().Uint32Value();
+    uint32_t frameHeight = info[2].As<Napi::Number>().Uint32Value();
+    Napi::Object animsObj = info[3].As<Napi::Object>();
+
+    bool opaque = info.Length() > 4 ? info[4].As<Napi::Boolean>().Value() : false;
+
+    // Parse animations object
+    std::vector<AnimationDef> animations;
+    Napi::Array animNames = animsObj.GetPropertyNames();
+
+    for (uint32_t i = 0; i < animNames.Length(); i++)
+    {
+        std::string animName = animNames.Get(i).As<Napi::String>().Utf8Value();
+        Napi::Object animData = animsObj.Get(animName).As<Napi::Object>();
+
+        AnimationDef def;
+        def.name = animName;
+
+        // Parse frames array
+        Napi::Array framesArray = animData.Get("frames").As<Napi::Array>();
+        for (uint32_t j = 0; j < framesArray.Length(); j++)
+        {
+            def.frames.push_back(framesArray.Get(j).As<Napi::Number>().Uint32Value());
+        }
+
+        // Parse fps and loop
+        def.fps = animData.Get("fps").As<Napi::Number>().FloatValue();
+        def.loop = animData.Get("loop").As<Napi::Boolean>().Value();
+
+        animations.push_back(def);
+    }
+
+    uint32_t spriteId = renderer_->CreateSpriteWithAnimations(atlasId, frameWidth, frameHeight,
+                                                              opaque, animations);
+
+    return Napi::Number::New(env, spriteId);
+}
+
+Napi::Value RendererWrapper::PlayAnimation(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2)
+    {
+        Napi::TypeError::New(env, "Expected (spriteId, animName)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t spriteId = info[0].As<Napi::Number>().Uint32Value();
+    std::string animName = info[1].As<Napi::String>().Utf8Value();
+
+    renderer_->PlayAnimation(spriteId, animName);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::UpdateSpriteAnimations(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1)
+    {
+        Napi::TypeError::New(env, "Expected deltaTime").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    float deltaTime = info[0].As<Napi::Number>().FloatValue();
+    renderer_->UpdateSpriteAnimations(deltaTime);
 
     return env.Undefined();
 }
