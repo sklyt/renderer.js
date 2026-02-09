@@ -104,8 +104,16 @@ public:
         unsigned int flags = info[0].As<Napi::Number>().Uint32Value();
         ::SetWindowState(flags);
 
+        if (renderer_->onResize_)
+        {
+            int newWidth = ::GetScreenWidth();
+            int newHeight = ::GetScreenHeight();
+            renderer_->onResize_(newWidth, newHeight);
+        }
+
         return env.Undefined();
     }
+
     Napi::Value GetFPS(const Napi::CallbackInfo &info)
     {
         Napi::Env env = info.Env();
@@ -146,10 +154,66 @@ public:
             renderer_->clearColor = color;
         }
 
-         return env.Undefined();
+        return env.Undefined();
     }
 
-private:
+    // Window-related methods
+    Napi::Value CloseWindow(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowReady(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowFullscreen(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowHidden(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowMinimized(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowMaximized(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowFocused(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowResized(const Napi::CallbackInfo &info);
+    Napi::Value IsWindowState(const Napi::CallbackInfo &info);
+    Napi::Value ClearWindowState(const Napi::CallbackInfo &info);
+    Napi::Value ToggleFullscreen(const Napi::CallbackInfo &info);
+    Napi::Value ToggleBorderlessWindowed(const Napi::CallbackInfo &info);
+    Napi::Value MaximizeWindow(const Napi::CallbackInfo &info);
+    Napi::Value MinimizeWindow(const Napi::CallbackInfo &info);
+    Napi::Value RestoreWindow(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowIcon(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowIcons(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowTitle(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowPosition(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowMonitor(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowMinSize(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowMaxSize(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowSize(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowOpacity(const Napi::CallbackInfo &info);
+    Napi::Value SetWindowFocused(const Napi::CallbackInfo &info);
+    Napi::Value GetWindowHandle(const Napi::CallbackInfo &info);
+    Napi::Value GetScreenWidth(const Napi::CallbackInfo &info);
+    Napi::Value GetScreenHeight(const Napi::CallbackInfo &info);
+    Napi::Value GetRenderWidth(const Napi::CallbackInfo &info);
+    Napi::Value GetRenderHeight(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorCount(const Napi::CallbackInfo &info);
+    Napi::Value GetCurrentMonitor(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorPosition(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorWidth(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorHeight(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorPhysicalWidth(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorPhysicalHeight(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorRefreshRate(const Napi::CallbackInfo &info);
+    Napi::Value GetWindowPosition(const Napi::CallbackInfo &info);
+    Napi::Value GetWindowScaleDPI(const Napi::CallbackInfo &info);
+    Napi::Value GetMonitorName(const Napi::CallbackInfo &info);
+    Napi::Value SetClipboardText(const Napi::CallbackInfo &info);
+    Napi::Value GetClipboardText(const Napi::CallbackInfo &info);
+    Napi::Value GetClipboardImage(const Napi::CallbackInfo &info);
+    Napi::Value EnableEventWaiting(const Napi::CallbackInfo &info);
+    Napi::Value DisableEventWaiting(const Napi::CallbackInfo &info);
+
+    // Cursor-related methods
+    Napi::Value ShowCursor(const Napi::CallbackInfo &info);
+    Napi::Value HideCursor(const Napi::CallbackInfo &info);
+    Napi::Value IsCursorHidden(const Napi::CallbackInfo &info);
+    Napi::Value EnableCursor(const Napi::CallbackInfo &info);
+    Napi::Value DisableCursor(const Napi::CallbackInfo &info);
+    Napi::Value IsCursorOnScreen(const Napi::CallbackInfo &info);
+
+    private:
     std::unique_ptr<Renderer> renderer_;
     std::vector<Napi::FunctionReference> renderCallbacks_;
     Napi::ObjectReference inputWrapper_;

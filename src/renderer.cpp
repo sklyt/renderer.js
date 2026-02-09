@@ -350,6 +350,52 @@ void Renderer::RegisterRenderCallback(std::function<void()> callback)
     renderCallbacks_.push_back(callback);
 }
 
+
+CameraState Renderer::GetCameraState(size_t bufRefId)
+{
+    CameraState cam = {0};
+    
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return cam;
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+        return cam;
+
+    // Reinterpret control buffer as float*
+    float *ctrl_f32 = reinterpret_cast<float *>(s->control);
+    
+    cam.worldX = ctrl_f32[CTRL_CAM_WORLD_X];
+    cam.worldY = ctrl_f32[CTRL_CAM_WORLD_Y];
+    cam.zoom = ctrl_f32[CTRL_CAM_ZOOM];
+    cam.viewWidth = ctrl_f32[CTRL_CAM_VIEW_WIDTH];
+    cam.viewHeight = ctrl_f32[CTRL_CAM_VIEW_HEIGHT];
+    cam.rotation = ctrl_f32[CTRL_CAM_ROTATION];
+    cam.frustumLeft = ctrl_f32[CTRL_CAM_FRUSTUM_LEFT];
+    cam.frustumRight = ctrl_f32[CTRL_CAM_FRUSTUM_RIGHT];
+    cam.frustumTop = ctrl_f32[CTRL_CAM_FRUSTUM_TOP];
+    cam.frustumBottom = ctrl_f32[CTRL_CAM_FRUSTUM_BOTTOM];
+    
+    return cam;
+}
+
+bool Renderer::IsInFrustum(const CameraState& cam, float worldX, float worldY, float width, float height)
+{
+    float left = worldX - width / 2.0f;
+    float right = worldX + width / 2.0f;
+    float top = worldY - height / 2.0f;
+    float bottom = worldY + height / 2.0f;
+
+    // AABB intersection test
+    if (right < cam.frustumLeft || left > cam.frustumRight ||
+        bottom < cam.frustumTop || top > cam.frustumBottom) {
+        return false; // Outside
+    }
+
+    return true; // at least partially visible
+}
+
 bool Renderer::Step()
 {
     UpdateSizeIfNeeded();
@@ -358,7 +404,7 @@ bool Renderer::Step()
     Clear(clearColor);
     for (auto &callback : renderCallbacks_)
     {
-        callback();
+        callback(); 
     }
     
     // Keep music streams fed (required for raylib streaming music playback)

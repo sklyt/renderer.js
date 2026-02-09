@@ -11,6 +11,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     DebuggerWrapperInit(env, exports);
     InputWrapper::Init(env, exports);
     AudioWrapper::Init(env, exports);
+    // The new wrappers will be self contained can go here instead of directly littering Renderer_wrapper, so they'll be use like renderer.sprite.AnimatedSprite(atlas, {options})
 
     return  RendererWrapper::Init(env, exports);
 }

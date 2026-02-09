@@ -22,9 +22,9 @@ const buffers = [
 
 
 const MAX_DIRTY_REGIONS = 256;
-const CTRL_JS_WRITE_IDX = 0;
+const CTRL_JS_WRITE_IDX = 10;
 // control buffer size in bytes
-const CONTROL_BUFFER_SIZE = (5 + MAX_DIRTY_REGIONS * 4) * 4;  // 4116 bytes
+const CONTROL_BUFFER_SIZE = (10 + 5 + MAX_DIRTY_REGIONS * 4) * 4;  // 4116 bytes
 
 const controlBuffer = new Uint32Array(new ArrayBuffer(CONTROL_BUFFER_SIZE));
 const bufferId = renderer.initSharedBuffers(buffers[0],
@@ -83,7 +83,7 @@ function Loop() {
     renderer.input.GetInput();
     const idx = Atomics.load(controlBuffer, CTRL_JS_WRITE_IDX);
     clear(255, 255, 255, 255, views[idx].buffer)
-    Atomics.store(controlBuffer, 3, 1);
+    Atomics.store(controlBuffer, 13, 1);
     if (renderer.step()) setImmediate(Loop);
     else {
         console.log('renderer loop ended');

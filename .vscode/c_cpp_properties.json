@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/include",
+                // "/home/sk/workspace/src/raylib/src",
+                "/home/sk/.cache/node-gyp/22.22.0/include/node",
+                "/usr/include",
+                "/usr/local/include",
+                "${workspaceFolder}/node_modules/node-addon-api"
+            ],
+            "defines": [
+                "_LINUX",
+                "_GNU_SOURCE"
+            ],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

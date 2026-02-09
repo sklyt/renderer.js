@@ -1,5 +1,7 @@
 #include "renderer_wrapper.h"
 #include <iostream>
+#define STB_IMAGE_IMPLEMENTATION
+#include "vendor/stb_image.h"
 
 Napi::FunctionReference RendererWrapper::constructor;
 
@@ -54,8 +56,64 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("markBufferRegionDirty", &RendererWrapper::MarkBufferRegionDirty),
                                                            InstanceMethod("setBufferDimensions", &RendererWrapper::SetBufferDimensions),
                                                            InstanceMethod("getBufferStats", &RendererWrapper::GetBufferStats),
-                                                               InstanceMethod("loadImage", &RendererWrapper::LoadImage),
-                                                             InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+                                                           InstanceMethod("loadImage", &RendererWrapper::LoadImage),
+                                                           InstanceMethod("unloadImage", &RendererWrapper::UnloadImage),
+
+                                                           // Window-related methods
+                                                           InstanceMethod("closeWindow", &RendererWrapper::CloseWindow),
+                                                           InstanceMethod("isWindowReady", &RendererWrapper::IsWindowReady),
+                                                           InstanceMethod("isWindowFullscreen", &RendererWrapper::IsWindowFullscreen),
+                                                           InstanceMethod("isWindowHidden", &RendererWrapper::IsWindowHidden),
+                                                           InstanceMethod("isWindowMinimized", &RendererWrapper::IsWindowMinimized),
+                                                           InstanceMethod("isWindowMaximized", &RendererWrapper::IsWindowMaximized),
+                                                           InstanceMethod("isWindowFocused", &RendererWrapper::IsWindowFocused),
+                                                           InstanceMethod("isWindowResized", &RendererWrapper::IsWindowResized),
+                                                           InstanceMethod("isWindowState", &RendererWrapper::IsWindowState),
+                                                           InstanceMethod("clearWindowState", &RendererWrapper::ClearWindowState),
+                                                           InstanceMethod("toggleFullscreen", &RendererWrapper::ToggleFullscreen),
+                                                           InstanceMethod("toggleBorderlessWindowed", &RendererWrapper::ToggleBorderlessWindowed),
+                                                           InstanceMethod("maximizeWindow", &RendererWrapper::MaximizeWindow),
+                                                           InstanceMethod("minimizeWindow", &RendererWrapper::MinimizeWindow),
+                                                           InstanceMethod("restoreWindow", &RendererWrapper::RestoreWindow),
+                                                           InstanceMethod("setWindowIcon", &RendererWrapper::SetWindowIcon),
+                                                           InstanceMethod("setWindowIcons", &RendererWrapper::SetWindowIcons),
+                                                           InstanceMethod("setWindowTitle", &RendererWrapper::SetWindowTitle),
+                                                           InstanceMethod("setWindowPosition", &RendererWrapper::SetWindowPosition),
+                                                           InstanceMethod("setWindowMonitor", &RendererWrapper::SetWindowMonitor),
+                                                           InstanceMethod("setWindowMinSize", &RendererWrapper::SetWindowMinSize),
+                                                           InstanceMethod("setWindowMaxSize", &RendererWrapper::SetWindowMaxSize),
+                                                           InstanceMethod("setWindowSize", &RendererWrapper::SetWindowSize),
+                                                           InstanceMethod("setWindowOpacity", &RendererWrapper::SetWindowOpacity),
+                                                           InstanceMethod("setWindowFocused", &RendererWrapper::SetWindowFocused),
+                                                           InstanceMethod("getWindowHandle", &RendererWrapper::GetWindowHandle),
+                                                           InstanceMethod("getScreenWidth", &RendererWrapper::GetScreenWidth),
+                                                           InstanceMethod("getScreenHeight", &RendererWrapper::GetScreenHeight),
+                                                           InstanceMethod("getRenderWidth", &RendererWrapper::GetRenderWidth),
+                                                           InstanceMethod("getRenderHeight", &RendererWrapper::GetRenderHeight),
+                                                           InstanceMethod("getMonitorCount", &RendererWrapper::GetMonitorCount),
+                                                           InstanceMethod("getCurrentMonitor", &RendererWrapper::GetCurrentMonitor),
+                                                           InstanceMethod("getMonitorPosition", &RendererWrapper::GetMonitorPosition),
+                                                           InstanceMethod("getMonitorWidth", &RendererWrapper::GetMonitorWidth),
+                                                           InstanceMethod("getMonitorHeight", &RendererWrapper::GetMonitorHeight),
+                                                           InstanceMethod("getMonitorPhysicalWidth", &RendererWrapper::GetMonitorPhysicalWidth),
+                                                           InstanceMethod("getMonitorPhysicalHeight", &RendererWrapper::GetMonitorPhysicalHeight),
+                                                           InstanceMethod("getMonitorRefreshRate", &RendererWrapper::GetMonitorRefreshRate),
+                                                           InstanceMethod("getWindowPosition", &RendererWrapper::GetWindowPosition),
+                                                           InstanceMethod("getWindowScaleDPI", &RendererWrapper::GetWindowScaleDPI),
+                                                           InstanceMethod("getMonitorName", &RendererWrapper::GetMonitorName),
+                                                           InstanceMethod("setClipboardText", &RendererWrapper::SetClipboardText),
+                                                           InstanceMethod("getClipboardText", &RendererWrapper::GetClipboardText),
+                                                           InstanceMethod("getClipboardImage", &RendererWrapper::GetClipboardImage),
+                                                           InstanceMethod("enableEventWaiting", &RendererWrapper::EnableEventWaiting),
+                                                           InstanceMethod("disableEventWaiting", &RendererWrapper::DisableEventWaiting),
+
+                                                           // Cursor-related methods
+                                                           InstanceMethod("showCursor", &RendererWrapper::ShowCursor),
+                                                           InstanceMethod("hideCursor", &RendererWrapper::HideCursor),
+                                                           InstanceMethod("isCursorHidden", &RendererWrapper::IsCursorHidden),
+                                                           InstanceMethod("enableCursor", &RendererWrapper::EnableCursor),
+                                                           InstanceMethod("disableCursor", &RendererWrapper::DisableCursor),
+                                                           InstanceMethod("isCursorOnScreen", &RendererWrapper::IsCursorOnScreen),
 
                                                        });
 
@@ -1078,4 +1136,643 @@ Napi::Value RendererWrapper::DrawTexturePro(const Napi::CallbackInfo &info)
     renderer_->DrawTextureRegion(textureId, srcPos, srcSize, destPos, destSize, tint);
 
     return env.Undefined();
+}
+
+// ============================================================================
+// Window-related methods
+// ============================================================================
+
+Napi::Value RendererWrapper::CloseWindow(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::CloseWindow();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::IsWindowReady(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowReady());
+}
+
+Napi::Value RendererWrapper::IsWindowFullscreen(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowFullscreen());
+}
+
+Napi::Value RendererWrapper::IsWindowHidden(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowHidden());
+}
+
+Napi::Value RendererWrapper::IsWindowMinimized(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowMinimized());
+}
+
+Napi::Value RendererWrapper::IsWindowMaximized(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowMaximized());
+}
+
+Napi::Value RendererWrapper::IsWindowFocused(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowFocused());
+}
+
+Napi::Value RendererWrapper::IsWindowResized(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsWindowResized());
+}
+
+Napi::Value RendererWrapper::IsWindowState(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected flag (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    unsigned int flag = info[0].As<Napi::Number>().Uint32Value();
+    return Napi::Boolean::New(env, ::IsWindowState(flag));
+}
+
+Napi::Value RendererWrapper::ClearWindowState(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected flags (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    unsigned int flags = info[0].As<Napi::Number>().Uint32Value();
+    ::ClearWindowState(flags);
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::ToggleFullscreen(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::ToggleFullscreen();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::ToggleBorderlessWindowed(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::ToggleBorderlessWindowed();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::MaximizeWindow(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::MaximizeWindow();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::MinimizeWindow(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::MinimizeWindow();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::RestoreWindow(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::RestoreWindow();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowIcon(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected imagePath (string) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string imagePath = info[0].As<Napi::String>().Utf8Value();
+
+    // Load image using stb_image
+    int width, height, channels;
+    unsigned char *data = stbi_load(imagePath.c_str(), &width, &height, &channels, 4);
+
+    if (!data)
+    {
+        Napi::Error::New(env, "Failed to load image: " + imagePath).ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    Image image = {
+        .data = data,
+        .width = width,
+        .height = height,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+    };
+
+    ::SetWindowIcon(image);
+    stbi_image_free(data);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowIcons(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsArray())
+    {
+        Napi::TypeError::New(env, "Expected imagePaths (array of strings) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    Napi::Array imagePaths = info[0].As<Napi::Array>();
+    uint32_t count = imagePaths.Length();
+
+    if (count == 0)
+    {
+        Napi::Error::New(env, "imagePaths array cannot be empty").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    Image *images = new Image[count];
+    unsigned char **dataPointers = new unsigned char *[count];
+
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        Napi::Value pathVal = imagePaths.Get(i);
+        if (!pathVal.IsString())
+        {
+            delete[] images;
+            delete[] dataPointers;
+            Napi::TypeError::New(env, "All elements in imagePaths must be strings").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        std::string imagePath = pathVal.As<Napi::String>().Utf8Value();
+
+        int width, height, channels;
+        unsigned char *data = stbi_load(imagePath.c_str(), &width, &height, &channels, 4);
+
+        if (!data)
+        {
+            // Cleanup previously loaded images
+            for (uint32_t j = 0; j < i; ++j)
+            {
+                stbi_image_free(dataPointers[j]);
+            }
+            delete[] images;
+            delete[] dataPointers;
+
+            Napi::Error::New(env, "Failed to load image: " + imagePath).ThrowAsJavaScriptException();
+            return env.Null();
+        }
+
+        dataPointers[i] = data;
+        images[i] = {
+            .data = data,
+            .width = width,
+            .height = height,
+            .mipmaps = 1,
+            .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        };
+    }
+
+    ::SetWindowIcons(images, count);
+
+    // Cleanup
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        stbi_image_free(dataPointers[i]);
+    }
+    delete[] images;
+    delete[] dataPointers;
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowTitle(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected title (string) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string title = info[0].As<Napi::String>().Utf8Value();
+    ::SetWindowTitle(title.c_str());
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowPosition(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected x, y (numbers) arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int x = info[0].As<Napi::Number>().Int32Value();
+    int y = info[1].As<Napi::Number>().Int32Value();
+    ::SetWindowPosition(x, y);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowMonitor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    ::SetWindowMonitor(monitor);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowMinSize(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected width, height (numbers) arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int width = info[0].As<Napi::Number>().Int32Value();
+    int height = info[1].As<Napi::Number>().Int32Value();
+    ::SetWindowMinSize(width, height);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowMaxSize(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected width, height (numbers) arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int width = info[0].As<Napi::Number>().Int32Value();
+    int height = info[1].As<Napi::Number>().Int32Value();
+    ::SetWindowMaxSize(width, height);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowSize(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected width, height (numbers) arguments").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int width = info[0].As<Napi::Number>().Int32Value();
+    int height = info[1].As<Napi::Number>().Int32Value();
+    ::SetWindowSize(width, height);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowOpacity(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected opacity (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    float opacity = info[0].As<Napi::Number>().FloatValue();
+    ::SetWindowOpacity(opacity);
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::SetWindowFocused(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::SetWindowFocused();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::GetWindowHandle(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    void *handle = ::GetWindowHandle();
+    // Return as a pointer value (as a number, since JS doesn't have native pointers)
+    return Napi::Number::New(env, reinterpret_cast<uintptr_t>(handle));
+}
+
+Napi::Value RendererWrapper::GetScreenWidth(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetScreenWidth());
+}
+
+Napi::Value RendererWrapper::GetScreenHeight(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetScreenHeight());
+}
+
+Napi::Value RendererWrapper::GetRenderWidth(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetRenderWidth());
+}
+
+Napi::Value RendererWrapper::GetRenderHeight(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetRenderHeight());
+}
+
+Napi::Value RendererWrapper::GetMonitorCount(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetMonitorCount());
+}
+
+Napi::Value RendererWrapper::GetCurrentMonitor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Number::New(env, ::GetCurrentMonitor());
+}
+
+Napi::Value RendererWrapper::GetMonitorPosition(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    Vector2 pos = ::GetMonitorPosition(monitor);
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, pos.x));
+    result.Set("y", Napi::Number::New(env, pos.y));
+
+    return result;
+}
+
+Napi::Value RendererWrapper::GetMonitorWidth(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    return Napi::Number::New(env, ::GetMonitorWidth(monitor));
+}
+
+Napi::Value RendererWrapper::GetMonitorHeight(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    return Napi::Number::New(env, ::GetMonitorHeight(monitor));
+}
+
+Napi::Value RendererWrapper::GetMonitorPhysicalWidth(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    return Napi::Number::New(env, ::GetMonitorPhysicalWidth(monitor));
+}
+
+Napi::Value RendererWrapper::GetMonitorPhysicalHeight(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    return Napi::Number::New(env, ::GetMonitorPhysicalHeight(monitor));
+}
+
+Napi::Value RendererWrapper::GetMonitorRefreshRate(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    return Napi::Number::New(env, ::GetMonitorRefreshRate(monitor));
+}
+
+Napi::Value RendererWrapper::GetWindowPosition(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Vector2 pos = ::GetWindowPosition();
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, pos.x));
+    result.Set("y", Napi::Number::New(env, pos.y));
+
+    return result;
+}
+
+Napi::Value RendererWrapper::GetWindowScaleDPI(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Vector2 scale = ::GetWindowScaleDPI();
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, scale.x));
+    result.Set("y", Napi::Number::New(env, scale.y));
+
+    return result;
+}
+
+Napi::Value RendererWrapper::GetMonitorName(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected monitor (number) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int monitor = info[0].As<Napi::Number>().Int32Value();
+    const char *name = ::GetMonitorName(monitor);
+
+    return Napi::String::New(env, name);
+}
+
+Napi::Value RendererWrapper::SetClipboardText(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected text (string) argument").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string text = info[0].As<Napi::String>().Utf8Value();
+    ::SetClipboardText(text.c_str());
+
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::GetClipboardText(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    const char *text = ::GetClipboardText();
+
+    return Napi::String::New(env, text ? text : "");
+}
+
+Napi::Value RendererWrapper::GetClipboardImage(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Image image = ::GetClipboardImage();
+
+    if (image.data == NULL)
+    {
+        Napi::Error::New(env, "Failed to get clipboard image").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    // Create result object with image metadata
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("width", Napi::Number::New(env, image.width));
+    result.Set("height", Napi::Number::New(env, image.height));
+    result.Set("format", Napi::Number::New(env, image.format));
+    result.Set("mipmaps", Napi::Number::New(env, image.mipmaps));
+
+    // Create ArrayBuffer from image data
+    size_t dataSize = image.width * image.height * 4; // assuming RGBA
+    Napi::ArrayBuffer arrayBuffer = Napi::ArrayBuffer::New(env, dataSize);
+    memcpy(arrayBuffer.Data(), image.data, dataSize);
+
+    Napi::Uint8Array uint8Array = Napi::Uint8Array::New(env, dataSize, arrayBuffer, 0);
+    result.Set("data", uint8Array);
+
+    // Cleanup
+    UnloadImage(image);
+
+    return result;
+}
+
+Napi::Value RendererWrapper::EnableEventWaiting(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::EnableEventWaiting();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DisableEventWaiting(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::DisableEventWaiting();
+    return env.Undefined();
+}
+
+// ============================================================================
+// Cursor-related methods
+// ============================================================================
+
+Napi::Value RendererWrapper::ShowCursor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::ShowCursor();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::HideCursor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::HideCursor();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::IsCursorHidden(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsCursorHidden());
+}
+
+Napi::Value RendererWrapper::EnableCursor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::EnableCursor();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::DisableCursor(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    ::DisableCursor();
+    return env.Undefined();
+}
+
+Napi::Value RendererWrapper::IsCursorOnScreen(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    return Napi::Boolean::New(env, ::IsCursorOnScreen());
 }
