@@ -13,7 +13,7 @@ const camera = {
     targetPosition: { x: 0, y: 0 },
     velocity: { x: 0, y: 0 },
     worldZoom: 1.0,
-    viewWidth: 800,
+    viewWidth: 900,
     viewHeight: 600,
     worldRotation: 0,
     frustum: {
@@ -79,16 +79,16 @@ const spriteId2 = renderer.createSpriteWithAnimations(
 const animatorId = renderer.createAnimator({
     up: {
         frames: [
-            "./assets/playerGrey_up1.png",
-            "./assets/playerGrey_up2.png"
+            "/home/sk/workspace/js/tessera/assets/G_GqXDrXwAAi5Bi.jpg",
+            "/home/sk/workspace/js/tessera/assets/G_GqXDrXwAAi5Bi.jpg"
         ],
         fps: 6,
         loop: true
     },
     walk: {
         frames: [
-            "./assets/playerGrey_walk1.png",
-            "./assets/playerGrey_walk2.png"
+            "/home/sk/workspace/js/tessera/assets/G_GqXDrXwAAi5Bi.jpg",
+            "/home/sk/workspace/js/tessera/assets/G_GqXDrXwAAi5Bi.jpg"
         ],
         fps: 6,
         loop: true
@@ -98,10 +98,17 @@ const animatorId = renderer.createAnimator({
 console.log("animator id: ", animatorId)
 
 // // Update transform
-// renderer.updateAnimator(animatorId, x, y, rotation, scaleX, scaleY, flipH, flipV);
 
+renderer.updateAnimator(animatorId, 50,    // x
+    50,    // y
+    0,      // rotation
+    2.0,    // scaleX
+    2.0,    // scaleY
+    false,  // flipH
+    false   // flipV);
+)
 // // Play animation
-// renderer.playAnimatorAnimation(animatorId, "walk");
+renderer.playAnimatorAnimation(animatorId, "walk");
 
 // // Update timing
 // renderer.updateAnimators(delta);
@@ -150,6 +157,12 @@ try {
 } catch (e) {
     console.log("Expected error:", e.message);
 }
+
+
+const tilePath = "/home/sk/workspace/js/tessera/assets/tiled/map.json"
+
+const mapId = renderer.loadTiledMap(tilePath);
+console.log("loaded map: ", mapId)
 
 const canvas = new PixelBuffer(renderer, 800, 600);
 
@@ -216,8 +229,10 @@ function loop() {
 
     // Update animations (C++ advances frames)
     renderer.updateSpriteAnimations(delta);
+    renderer.updateAnimators(delta);
     clear(50, 50, 50, canvas.data.buffer); // JS writes background
     canvas.updateCamera(camera);
+    renderer.drawTiledMap(mapId, canvas.textureId);
     const buffer = canvas.getCurrentBuffer();
     const idx = (10 * canvas.width + 10) * 4;
     buffer[idx] = 255;
@@ -255,6 +270,7 @@ function loop() {
     canvas.markRegion(300, 300, 50, 50);
     renderer.drawSprite(spriteId, canvas.textureId);
     renderer.drawSprite(spriteId2, canvas.textureId);
+    renderer.drawAnimator(animatorId, canvas.textureId);
 
     // Animate
     frame = (frame + 1) % 8;

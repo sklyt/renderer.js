@@ -12,12 +12,14 @@
         "src/input_wrapper.cpp",
         "src/shared_buffer.cpp",
         "src/audio_manager.cpp",
-        "src/audio_wrapper.cpp"
+        "src/audio_wrapper.cpp",
+        "src/tiled.cpp",
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
         "<(module_root_dir)/include",
-        "<(module_root_dir)/src/vendor"
+        "<(module_root_dir)/src/vendor",
+        "<(module_root_dir)/src/vendor/rapidjson"
       ],
       "conditions": [
         ["OS=='win'", {

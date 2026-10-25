@@ -10,6 +10,7 @@
 #include "napi.h"
 #include <atomic>
 #include <cstdint>
+#include "tiled.h"
 
 // Forward declare stbi_image_free to avoid including the full stb_image.h here
 extern "C" void stbi_image_free(void *retval_from_stbi_load);
@@ -34,6 +35,12 @@ extern "C" void stbi_image_free(void *retval_from_stbi_load);
 #define CTRL_DIRTY_REGIONS 15
 
 #define MAX_DIRTY_REGIONS 256
+
+
+struct FrameRect
+{
+    uint32_t x, y, w, h;
+};
 
 struct SpriteAtlas
 {
@@ -260,6 +267,14 @@ public:
     Vector2 ToRaylib() const { return {x, y}; }
 };
 
+// tiled
+
+struct TilesetLookup
+{
+    TiledTileset *tileset;
+    uint32_t localid;
+};
+
 class Renderer
 {
 public:
@@ -389,6 +404,13 @@ public:
     bool buffers_initialized_ = false;
     Color4 clearColor = Color4(0.2, 0.3, 0.4, 1.0);
 
+    // tilemap
+    uint32_t LoadTiledMap(const std::string &path);
+    TiledMap *GetTiledMap(uint32_t mapid);
+    void DestroyTiledMap(uint32_t mapId);
+
+    void DrawTiledMap(uint32_t mapId, size_t bufredId);
+
 private:
     int width_;
     int height_;
@@ -419,4 +441,24 @@ private:
     std::thread buffer_update_thread_;
 
     void BufferUpdateThread();
+
+    // tiled
+    std::unordered_map<uint32_t, TiledMap *> tiledMaps_;
+    uint32_t next_tiled_map_id_ = 1;
+    std::mutex tiled_mutex_;
+
+    TilesetLookup FindTileset(TiledMap *map, uint32_t tileId);
+    FrameRect GetTileFrameRect(TiledTileset *tileset, uint32_t localId)
+    {
+        uint32_t col = localId % tileset->columns;
+        uint32_t row = localId / tileset->columns;
+
+        return {
+            col * tileset->tileWidth,
+            row * tileset->tileHeight,
+            tileset->tileWidth,
+            tileset->tileHeight};
+    };
+    void RenderTileLayer(TiledTileLayer *layer, TiledMap *map, size_t bufRefId,
+                         const CameraState &cam);
 };

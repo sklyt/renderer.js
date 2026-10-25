@@ -12,6 +12,11 @@ public:
     static Napi::Object Init(Napi::Env env, Napi::Object exports);
     RendererWrapper(const Napi::CallbackInfo &info);
 
+
+    // tiled
+        Napi::Value LoadTiledMap(const Napi::CallbackInfo &info);
+    Napi::Value DestroyTiledMap(const Napi::CallbackInfo &info);
+    Napi::Value DrawTiledMap(const Napi::CallbackInfo &info);
     // Core lifecycle
     Napi::Value Initialize(const Napi::CallbackInfo &info);
     Napi::Value Shutdown(const Napi::CallbackInfo &info);

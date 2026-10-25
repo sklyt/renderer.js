@@ -147,7 +147,10 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                            InstanceMethod("drawAnimator", &RendererWrapper::DrawAnimator),
                                                            InstanceMethod("updateAnimators", &RendererWrapper::UpdateAnimators),
                                                            InstanceMethod("destroyAnimator", &RendererWrapper::DestroyAnimator),
-                                                           });
+                                                            InstanceMethod("loadTiledMap", &RendererWrapper::LoadTiledMap),
+    InstanceMethod("destroyTiledMap", &RendererWrapper::DestroyTiledMap),
+     InstanceMethod("drawTiledMap", &RendererWrapper::DrawTiledMap),
+                                                       });
 
     constructor = Napi::Persistent(func);
     constructor.SuppressDestruct();
@@ -169,6 +172,64 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
 
 RendererWrapper::RendererWrapper(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<RendererWrapper>(info), renderer_(std::make_unique<Renderer>()) {}
+
+// tiled
+
+Napi::Value RendererWrapper::LoadTiledMap(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
+        Napi::TypeError::New(env, "Expected string path").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    std::string path = info[0].As<Napi::String>().Utf8Value();
+    uint32_t mapId = renderer_->LoadTiledMap(path);
+
+    if (mapId == 0)
+    {
+        Napi::Error::New(env, "Failed to load Tiled map: " + path).ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    return Napi::Number::New(env, mapId);
+}
+
+Napi::Value RendererWrapper::DestroyTiledMap(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1)
+    {
+        Napi::TypeError::New(env, "Expected mapId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    uint32_t mapId = info[0].As<Napi::Number>().Uint32Value();
+    renderer_->DestroyTiledMap(mapId);
+
+    return env.Undefined();
+}
+
+
+Napi::Value RendererWrapper::DrawTiledMap(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 2) {
+        Napi::TypeError::New(env, "Expected (mapId, bufRefId)").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    
+    uint32_t mapId = info[0].As<Napi::Number>().Uint32Value();
+    size_t bufRefId = info[1].As<Napi::Number>().Uint32Value();
+    
+    renderer_->DrawTiledMap(mapId, bufRefId);
+    
+    return env.Undefined();
+}
 
 // sprite
 

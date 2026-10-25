@@ -8,6 +8,232 @@
 #include "audio_manager.h"
 #include <debugger.h>
 
+
+
+ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
+                         float worldW, float worldH)
+{
+    // Translate to camera space
+    float dx = worldX - cam.worldX;
+    float dy = worldY - cam.worldY;
+
+    // Rotate by negative camera rotation (inverse transform)
+    float cosA = cosf(-cam.rotation);
+    float sinA = sinf(-cam.rotation);
+
+    float camX = dx * cosA - dy * sinA;
+    float camY = dx * sinA + dy * cosA;
+
+    // Apply zoom
+    camX *= cam.zoom;
+    camY *= cam.zoom;
+
+    // Convert to screen coordinates (camera center = screen center)
+    float screenX = camX + cam.viewWidth / 2.0f;
+    float screenY = camY + cam.viewHeight / 2.0f;
+
+    return {
+        static_cast<int32_t>(screenX),
+        static_cast<int32_t>(screenY),
+        static_cast<uint32_t>(worldW * cam.zoom),
+        static_cast<uint32_t>(worldH * cam.zoom)};
+}
+
+
+
+// Fast path: opaque, no rotation, nearest neighbor
+void BlitSpriteNN_Opaque(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
+                         const ScreenRect &dstRect,
+                         const SpriteAtlas *atlas, const FrameRect &srcRect,
+                         bool flipH, bool flipV)
+{
+    // Clamp dest rect to buffer bounds
+    int32_t dstX = dstRect.x;
+    int32_t dstY = dstRect.y;
+    int32_t dstW = dstRect.width;
+    int32_t dstH = dstRect.height;
+
+    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
+        return;
+    if (dstX + dstW <= 0 || dstY + dstH <= 0)
+        return;
+
+    int32_t clipLeft = 0, clipTop = 0;
+    if (dstX < 0)
+    {
+        clipLeft = -dstX;
+        dstW += dstX;
+        dstX = 0;
+    }
+    if (dstY < 0)
+    {
+        clipTop = -dstY;
+        dstH += dstY;
+        dstY = 0;
+    }
+    if (dstX + dstW > static_cast<int32_t>(dstWidth))
+        dstW = dstWidth - dstX;
+    if (dstY + dstH > static_cast<int32_t>(dstHeight))
+        dstH = dstHeight - dstY;
+
+    if (dstW <= 0 || dstH <= 0)
+        return;
+
+    const uint8_t *srcData = atlas->data;
+    const uint32_t srcWidth = atlas->width;
+    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
+    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+
+    // Row-by-row blit
+    for (int32_t row = 0; row < dstH; row++)
+    {
+        int32_t screenY = dstY + row;
+        int32_t localY = clipTop + row;
+
+        // Map to source Y
+        float srcYf = (localY + 0.5f) * scaleY;
+        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        if (flipV)
+            srcY = (srcRect.h - 1) - srcY;
+        srcY += srcRect.y;
+
+        uint32_t dstRowBase = screenY * dstWidth * 4;
+        uint32_t srcRowBase = srcY * srcWidth * 4;
+
+        for (int32_t col = 0; col < dstW; col++)
+        {
+            int32_t screenX = dstX + col;
+            int32_t localX = clipLeft + col;
+
+            // Map to source X
+            float srcXf = (localX + 0.5f) * scaleX;
+            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            if (flipH)
+                srcX = (srcRect.w - 1) - srcX;
+            srcX += srcRect.x;
+
+            uint32_t dstIdx = dstRowBase + screenX * 4;
+            uint32_t srcIdx = srcRowBase + srcX * 4;
+
+            // Direct copy (opaque, no blend)
+            dstBuffer[dstIdx + 0] = srcData[srcIdx + 0]; // R
+            dstBuffer[dstIdx + 1] = srcData[srcIdx + 1]; // G
+            dstBuffer[dstIdx + 2] = srcData[srcIdx + 2]; // B
+            dstBuffer[dstIdx + 3] = 255;                 // A
+        }
+    }
+}
+
+// With alpha blending
+void BlitSpriteNN_Alpha(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
+                        const ScreenRect &dstRect,
+                        const SpriteAtlas *atlas, const FrameRect &srcRect,
+                        bool flipH, bool flipV)
+{
+
+    int32_t dstX = dstRect.x;
+    int32_t dstY = dstRect.y;
+    int32_t dstW = dstRect.width;
+    int32_t dstH = dstRect.height;
+
+    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
+        return;
+    if (dstX + dstW <= 0 || dstY + dstH <= 0)
+        return;
+
+    int32_t clipLeft = 0, clipTop = 0;
+    if (dstX < 0)
+    {
+        clipLeft = -dstX;
+        dstW += dstX;
+        dstX = 0;
+    }
+    if (dstY < 0)
+    {
+        clipTop = -dstY;
+        dstH += dstY;
+        dstY = 0;
+    }
+    if (dstX + dstW > static_cast<int32_t>(dstWidth))
+        dstW = dstWidth - dstX;
+    if (dstY + dstH > static_cast<int32_t>(dstHeight))
+        dstH = dstHeight - dstY;
+
+    if (dstW <= 0 || dstH <= 0)
+        return;
+
+    const uint8_t *srcData = atlas->data;
+    const uint32_t srcWidth = atlas->width;
+    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
+    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+
+    for (int32_t row = 0; row < dstH; row++)
+    {
+        int32_t screenY = dstY + row;
+        int32_t localY = clipTop + row;
+
+        float srcYf = (localY + 0.5f) * scaleY;
+        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        if (flipV)
+            srcY = (srcRect.h - 1) - srcY;
+        srcY += srcRect.y;
+
+        uint32_t dstRowBase = screenY * dstWidth * 4;
+        uint32_t srcRowBase = srcY * srcWidth * 4;
+
+        for (int32_t col = 0; col < dstW; col++)
+        {
+            int32_t screenX = dstX + col;
+            int32_t localX = clipLeft + col;
+
+            float srcXf = (localX + 0.5f) * scaleX;
+            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            if (flipH)
+                srcX = (srcRect.w - 1) - srcX;
+            srcX += srcRect.x;
+
+            uint32_t dstIdx = dstRowBase + screenX * 4;
+            uint32_t srcIdx = srcRowBase + srcX * 4;
+
+            uint8_t sR = srcData[srcIdx + 0];
+            uint8_t sG = srcData[srcIdx + 1];
+            uint8_t sB = srcData[srcIdx + 2];
+            uint8_t sA = srcData[srcIdx + 3];
+
+            if (sA == 255)
+            {
+                // Fully opaque pixel - direct copy
+                dstBuffer[dstIdx + 0] = sR;
+                dstBuffer[dstIdx + 1] = sG;
+                dstBuffer[dstIdx + 2] = sB;
+                dstBuffer[dstIdx + 3] = 255;
+            }
+            else if (sA > 0)
+            {
+                // Alpha blend
+                uint8_t dR = dstBuffer[dstIdx + 0];
+                uint8_t dG = dstBuffer[dstIdx + 1];
+                uint8_t dB = dstBuffer[dstIdx + 2];
+                uint8_t dA = dstBuffer[dstIdx + 3];
+
+                uint32_t inv = 255 - sA;
+
+                uint8_t outR = ((sR * sA + dR * inv) + 127) / 255;
+                uint8_t outG = ((sG * sA + dG * inv) + 127) / 255;
+                uint8_t outB = ((sB * sA + dB * inv) + 127) / 255;
+                uint8_t outA = ((sA * 255 + dA * inv) + 127) / 255;
+
+                dstBuffer[dstIdx + 0] = outR;
+                dstBuffer[dstIdx + 1] = outG;
+                dstBuffer[dstIdx + 2] = outB;
+                dstBuffer[dstIdx + 3] = outA;
+            }
+            // If sA == 0, skip (fully transparent)
+        }
+    }
+}
+
+
 Renderer::Renderer() : width_(0), height_(0), initialized_(false),
                        nextTextureId_(1), nextRenderTextureId_(1000000),
                        currentRenderTargetId_(0), inTextureMode_(false) {}
@@ -22,6 +248,15 @@ Renderer::~Renderer()
             delete pair.second;
         }
         atlases_.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(tiled_mutex_);
+        for (auto &pair : tiledMaps_)
+        {
+            delete pair.second;
+        }
+        tiledMaps_.clear();
     }
     // Cleanup textures
     for (auto &kv : textures_)
@@ -156,6 +391,306 @@ void Renderer::DrawText(const std::string &text, const Vec2 &pos, int fontSize, 
 {
     ::DrawText(text.c_str(), (int)pos.x, (int)pos.y, fontSize, color.ToRaylib());
 }
+
+// tiled
+
+uint32_t Renderer::LoadTiledMap(const std::string &path)
+{
+    TiledMap *map = ParseTiledMap(path);
+
+    if (!map)
+    {
+        Debugger::Instance().LogError("Failed to parse Tiled map: " + path);
+        return 0;
+    }
+
+    size_t s = map->tilesets.size();
+    Debugger::Instance().LogInfo("path: " + map->basePath + " size " + std::to_string(s));
+
+    for (const auto &tileset : map->tilesets)
+    {
+        // Skip tilesets with no image to load - either an empty tileset
+        // (tileCount == 0, e.g. a stray/duplicate entry) or a collection
+        // tileset whose fallback tile (local id 0) had no image.
+        if (tileset->imagePath.empty())
+        {
+            Debugger::Instance().LogInfo("Skipping tileset '" + tileset->name +
+                                         "' (firstgid " + std::to_string(tileset->first_gid) +
+                                         "): no image path");
+            continue;
+        }
+
+        std::string atlasPath = map->basePath + tileset->imagePath;
+        Debugger::Instance().LogInfo("Loading tileset '" + tileset->name +
+                                     "' path " + map->basePath + " " + tileset->imagePath);
+
+        uint32_t atlasId = LoadAtlas(atlasPath);
+        if (atlasId == 0)
+        {
+            Debugger::Instance().LogError("Failed to load tileset atlas: " + atlasPath);
+            delete map;
+            return 0;
+        }
+
+        tileset->atlasId = atlasId;
+        Debugger::Instance().LogInfo("Loaded tileset '" + tileset->name +
+                                     "' as atlas " + std::to_string(atlasId));
+    }
+
+    std::lock_guard<std::mutex> lock(tiled_mutex_);
+    uint32_t id = next_tiled_map_id_++;
+    tiledMaps_[id] = map;
+
+    Debugger::Instance().LogInfo("Loaded Tiled map " + std::to_string(id) +
+                                 " from " + path);
+
+    return id;
+}
+
+TiledMap *Renderer::GetTiledMap(uint32_t mapId)
+{
+    std::lock_guard<std::mutex> lock(tiled_mutex_);
+    auto it = tiledMaps_.find(mapId);
+    if (it == tiledMaps_.end())
+        return nullptr;
+    return it->second;
+}
+
+void Renderer::DestroyTiledMap(uint32_t mapId)
+{
+    std::lock_guard<std::mutex> lock(tiled_mutex_);
+    auto it = tiledMaps_.find(mapId);
+    if (it != tiledMaps_.end())
+    {
+        delete it->second;
+        tiledMaps_.erase(it);
+    }
+}
+
+TilesetLookup Renderer::FindTileset(TiledMap *map, uint32_t tileId)
+{
+    TilesetLookup result = {nullptr, 0};
+
+    if (tileId == 0)
+        return result; // Tile ID 0 = empty
+
+    // Tilesets are sorted by firstGid
+    // Find the tileset where: firstGid <= tileId < nextFirstGid
+    for (size_t i = 0; i < map->tilesets.size(); i++)
+    {
+        TiledTileset *ts = map->tilesets[i];
+
+        // Check if this is the right tileset
+        uint32_t nextGid = (i + 1 < map->tilesets.size())
+                               ? map->tilesets[i + 1]->first_gid
+                               : UINT32_MAX;
+
+        if (tileId >= ts->first_gid && tileId < nextGid)
+        {
+            result.tileset = ts;
+            result.localid = tileId - ts->first_gid; // Convert to 0-based
+            return result;
+        }
+    }
+
+    return result;
+}
+
+
+// // renderer.cpp - alternative implementation
+
+// void Renderer::RenderTileLayer(TiledTileLayer* layer, TiledMap* map, 
+//                                size_t bufRefId, const CameraState& cam)
+// {
+//     // ... same setup as before ...
+    
+//     const uint32_t CHUNK_SIZE = 16;  // 16x16 tiles per chunk
+    
+//     // Calculate visible chunk range
+//     int32_t startChunkX = startTileX / CHUNK_SIZE;
+//     int32_t endChunkX = (endTileX + CHUNK_SIZE - 1) / CHUNK_SIZE;
+//     int32_t startChunkY = startTileY / CHUNK_SIZE;
+//     int32_t endChunkY = (endTileY + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    
+//     // Render visible chunks
+//     for (int32_t cy = startChunkY; cy < endChunkY; cy++) {
+//         for (int32_t cx = startChunkX; cx < endChunkX; cx++) {
+//             // Calculate tile range for this chunk
+//             int32_t chunkStartX = cx * CHUNK_SIZE;
+//             int32_t chunkEndX = std::min(chunkStartX + CHUNK_SIZE, 
+//                                          static_cast<int32_t>(layer->width));
+//             int32_t chunkStartY = cy * CHUNK_SIZE;
+//             int32_t chunkEndY = std::min(chunkStartY + CHUNK_SIZE, 
+//                                          static_cast<int32_t>(layer->height));
+            
+//             // Clamp to visible range
+//             if (chunkStartX < startTileX) chunkStartX = startTileX;
+//             if (chunkEndX > endTileX) chunkEndX = endTileX;
+//             if (chunkStartY < startTileY) chunkStartY = startTileY;
+//             if (chunkEndY > endTileY) chunkEndY = endTileY;
+            
+//             // Render tiles in this chunk
+//             for (int32_t ty = chunkStartY; ty < chunkEndY; ty++) {
+//                 for (int32_t tx = chunkStartX; tx < chunkEndX; tx++) {
+//                     // ... same tile rendering as before ...
+//                 }
+//             }
+//         }
+//     }
+// }
+
+void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
+                               size_t bufRefId, const CameraState &cam)
+{
+
+    // Get current write buffer
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+        return;
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+        return;
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
+    uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    uint8_t *dstBuffer = s->pixel_buffers[js_write];
+
+    // Layer offset in world space
+    float layerWorldX = static_cast<float>(layer->offsetX);
+    float layerWorldY = static_cast<float>(layer->offsetY);
+
+    // Calculate visible tile range
+    float tileW = static_cast<float>(map->tileWidth);
+    float tileH = static_cast<float>(map->tileHeight);
+
+    // Camera frustum in world space
+    float visibleLeft = cam.frustumLeft - layerWorldX;
+    float visibleRight = cam.frustumRight - layerWorldX;
+    float visibleTop = cam.frustumTop - layerWorldY;
+    float visibleBottom = cam.frustumBottom - layerWorldY;
+
+    // Convert to tile coordinates
+    int32_t startTileX = static_cast<int32_t>(std::floor(visibleLeft / tileW));
+    int32_t endTileX = static_cast<int32_t>(std::ceil(visibleRight / tileW));
+    int32_t startTileY = static_cast<int32_t>(std::floor(visibleTop / tileH));
+    int32_t endTileY = static_cast<int32_t>(std::ceil(visibleBottom / tileH));
+
+    // Clamp to layer bounds
+    if (startTileX < 0)
+        startTileX = 0;
+    if (startTileY < 0)
+        startTileY = 0;
+    if (endTileX > static_cast<int32_t>(layer->width))
+        endTileX = layer->width;
+    if (endTileY > static_cast<int32_t>(layer->height))
+        endTileY = layer->height;
+
+
+        // Render visible tiles
+    for (int32_t ty = startTileY; ty < endTileY; ty++) {
+        for (int32_t tx = startTileX; tx < endTileX; tx++) {
+            uint32_t tileIdx = ty * layer->width + tx;
+            uint32_t tileId = layer->data[tileIdx];
+            
+            if (tileId == 0)
+                continue;  // Empty tile
+            
+            // Find which tileset this tile belongs to
+            TilesetLookup lookup = FindTileset(map, tileId);
+            if (!lookup.tileset)
+                continue;
+            
+            // Get atlas
+            SpriteAtlas* atlas = GetAtlas(lookup.tileset->atlasId);
+            if (!atlas)
+                continue;
+            
+            // Get source rect in atlas
+            FrameRect srcRect = GetTileFrameRect(lookup.tileset, lookup.localid);
+            
+            // Calculate world position of this tile
+            float worldX = layerWorldX + tx * tileW;
+            float worldY = layerWorldY + ty * tileH;
+            
+            // Convert to screen space
+            ScreenRect screenRect = WorldToScreen(cam, worldX, worldY, tileW, tileH);
+            
+            // Blit tile (use opaque fast path - tiles are usually opaque)
+            BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
+                               atlas, srcRect, false, false);
+        }
+    }
+    
+    // Mark dirty region for entire visible area
+    ScreenRect visibleScreen = WorldToScreen(cam, 
+        layerWorldX + startTileX * tileW, 
+        layerWorldY + startTileY * tileH,
+        (endTileX - startTileX) * tileW,
+        (endTileY - startTileY) * tileH);
+    
+    uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
+    
+    if (dirty_count < MAX_DIRTY_REGIONS) {
+        uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
+        
+        int32_t rx = visibleScreen.x < 0 ? 0 : visibleScreen.x;
+        int32_t ry = visibleScreen.y < 0 ? 0 : visibleScreen.y;
+        uint32_t rw = visibleScreen.width;
+        uint32_t rh = visibleScreen.height;
+        
+        if (rx + rw > s->width)
+            rw = s->width - rx;
+        if (ry + rh > s->height)
+            rh = s->height - ry;
+        
+        ctrl[offset + 0] = rx;
+        ctrl[offset + 1] = ry;
+        ctrl[offset + 2] = rw;
+        ctrl[offset + 3] = rh;
+        
+        ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
+    }  
+}
+
+
+
+void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId)
+{
+    // Get map
+    TiledMap* map = GetTiledMap(mapId);
+    if (!map)
+        return;
+    
+    // Process pending JS writes
+    ProcessPendingRegions(bufRefId);
+    
+    // Get camera state
+    CameraState cam = GetCameraState(bufRefId);
+    
+    // Render each layer
+    for (size_t i = 0; i < map->layers.size(); i++) {
+        TiledLayer* layer = map->layers[i];
+        
+        if (!layer->visible)
+            continue;
+        
+        switch (layer->type) {
+            case TiledLayerType::TILE:
+                RenderTileLayer(layer->tileLayer, map, bufRefId, cam);
+                break;
+            
+            case TiledLayerType::OBJECT:
+                // TODO: Chapter 10
+                break;
+            
+            case TiledLayerType::COLLISION:
+                // Collision layers don't render
+                break;
+        }
+    }
+}
+
 
 // sprite
 
@@ -312,10 +847,7 @@ void Renderer::DestroySprite(uint32_t spriteId)
     }
 }
 
-struct FrameRect
-{
-    uint32_t x, y, w, h;
-};
+
 
 FrameRect GetFrameRect(AnimatedSprite *sprite, uint32_t frameIndex)
 {
@@ -330,540 +862,350 @@ FrameRect GetFrameRect(AnimatedSprite *sprite, uint32_t frameIndex)
 }
 
 
-// Fast path: opaque, no rotation, nearest neighbor
-void BlitSpriteNN_Opaque(uint8_t* dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
-                         const ScreenRect& dstRect,
-                         const SpriteAtlas* atlas, const FrameRect& srcRect,
-                         bool flipH, bool flipV)
-{
-    // Clamp dest rect to buffer bounds
-    int32_t dstX = dstRect.x;
-    int32_t dstY = dstRect.y;
-    int32_t dstW = dstRect.width;
-    int32_t dstH = dstRect.height;
-    
-    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
-        return;
-    if (dstX + dstW <= 0 || dstY + dstH <= 0)
-        return;
-    
-   
-    int32_t clipLeft = 0, clipTop = 0;
-    if (dstX < 0) {
-        clipLeft = -dstX;
-        dstW += dstX;
-        dstX = 0;
-    }
-    if (dstY < 0) {
-        clipTop = -dstY;
-        dstH += dstY;
-        dstY = 0;
-    }
-    if (dstX + dstW > static_cast<int32_t>(dstWidth))
-        dstW = dstWidth - dstX;
-    if (dstY + dstH > static_cast<int32_t>(dstHeight))
-        dstH = dstHeight - dstY;
-    
-    if (dstW <= 0 || dstH <= 0)
-        return;
-    
-    const uint8_t* srcData = atlas->data;
-    const uint32_t srcWidth = atlas->width;
-    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
-    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
-    
-    // Row-by-row blit
-    for (int32_t row = 0; row < dstH; row++) {
-        int32_t screenY = dstY + row;
-        int32_t localY = clipTop + row;
-        
-        // Map to source Y
-        float srcYf = (localY + 0.5f) * scaleY;
-        uint32_t srcY = static_cast<uint32_t>(srcYf);
-        if (flipV)
-            srcY = (srcRect.h - 1) - srcY;
-        srcY += srcRect.y;
-        
-        uint32_t dstRowBase = screenY * dstWidth * 4;
-        uint32_t srcRowBase = srcY * srcWidth * 4;
-        
-        for (int32_t col = 0; col < dstW; col++) {
-            int32_t screenX = dstX + col;
-            int32_t localX = clipLeft + col;
-            
-            // Map to source X
-            float srcXf = (localX + 0.5f) * scaleX;
-            uint32_t srcX = static_cast<uint32_t>(srcXf);
-            if (flipH)
-                srcX = (srcRect.w - 1) - srcX;
-            srcX += srcRect.x;
-            
-            uint32_t dstIdx = dstRowBase + screenX * 4;
-            uint32_t srcIdx = srcRowBase + srcX * 4;
-            
-            // Direct copy (opaque, no blend)
-            dstBuffer[dstIdx + 0] = srcData[srcIdx + 0]; // R
-            dstBuffer[dstIdx + 1] = srcData[srcIdx + 1]; // G
-            dstBuffer[dstIdx + 2] = srcData[srcIdx + 2]; // B
-            dstBuffer[dstIdx + 3] = 255;                  // A
-        }
-    }
-}
-
-// With alpha blending
-void BlitSpriteNN_Alpha(uint8_t* dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
-                        const ScreenRect& dstRect,
-                        const SpriteAtlas* atlas, const FrameRect& srcRect,
-                        bool flipH, bool flipV)
-{
-
-    int32_t dstX = dstRect.x;
-    int32_t dstY = dstRect.y;
-    int32_t dstW = dstRect.width;
-    int32_t dstH = dstRect.height;
-    
-    if (dstX >= static_cast<int32_t>(dstWidth) || dstY >= static_cast<int32_t>(dstHeight))
-        return;
-    if (dstX + dstW <= 0 || dstY + dstH <= 0)
-        return;
-    
-    int32_t clipLeft = 0, clipTop = 0;
-    if (dstX < 0) {
-        clipLeft = -dstX;
-        dstW += dstX;
-        dstX = 0;
-    }
-    if (dstY < 0) {
-        clipTop = -dstY;
-        dstH += dstY;
-        dstY = 0;
-    }
-    if (dstX + dstW > static_cast<int32_t>(dstWidth))
-        dstW = dstWidth - dstX;
-    if (dstY + dstH > static_cast<int32_t>(dstHeight))
-        dstH = dstHeight - dstY;
-    
-    if (dstW <= 0 || dstH <= 0)
-        return;
-    
-    const uint8_t* srcData = atlas->data;
-    const uint32_t srcWidth = atlas->width;
-    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
-    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
-    
-    for (int32_t row = 0; row < dstH; row++) {
-        int32_t screenY = dstY + row;
-        int32_t localY = clipTop + row;
-        
-        float srcYf = (localY + 0.5f) * scaleY;
-        uint32_t srcY = static_cast<uint32_t>(srcYf);
-        if (flipV)
-            srcY = (srcRect.h - 1) - srcY;
-        srcY += srcRect.y;
-        
-        uint32_t dstRowBase = screenY * dstWidth * 4;
-        uint32_t srcRowBase = srcY * srcWidth * 4;
-        
-        for (int32_t col = 0; col < dstW; col++) {
-            int32_t screenX = dstX + col;
-            int32_t localX = clipLeft + col;
-            
-            float srcXf = (localX + 0.5f) * scaleX;
-            uint32_t srcX = static_cast<uint32_t>(srcXf);
-            if (flipH)
-                srcX = (srcRect.w - 1) - srcX;
-            srcX += srcRect.x;
-            
-            uint32_t dstIdx = dstRowBase + screenX * 4;
-            uint32_t srcIdx = srcRowBase + srcX * 4;
-            
-            uint8_t sR = srcData[srcIdx + 0];
-            uint8_t sG = srcData[srcIdx + 1];
-            uint8_t sB = srcData[srcIdx + 2];
-            uint8_t sA = srcData[srcIdx + 3];
-            
-            if (sA == 255) {
-                // Fully opaque pixel - direct copy
-                dstBuffer[dstIdx + 0] = sR;
-                dstBuffer[dstIdx + 1] = sG;
-                dstBuffer[dstIdx + 2] = sB;
-                dstBuffer[dstIdx + 3] = 255;
-            } else if (sA > 0) {
-                // Alpha blend
-                uint8_t dR = dstBuffer[dstIdx + 0];
-                uint8_t dG = dstBuffer[dstIdx + 1];
-                uint8_t dB = dstBuffer[dstIdx + 2];
-                uint8_t dA = dstBuffer[dstIdx + 3];
-                
-                uint32_t inv = 255 - sA;
-                
-                uint8_t outR = ((sR * sA + dR * inv) + 127) / 255;
-                uint8_t outG = ((sG * sA + dG * inv) + 127) / 255;
-                uint8_t outB = ((sB * sA + dB * inv) + 127) / 255;
-                uint8_t outA = ((sA * 255 + dA * inv) + 127) / 255;
-                
-                dstBuffer[dstIdx + 0] = outR;
-                dstBuffer[dstIdx + 1] = outG;
-                dstBuffer[dstIdx + 2] = outB;
-                dstBuffer[dstIdx + 3] = outA;
-            }
-            // If sA == 0, skip (fully transparent)
-        }
-    }
-}
-
 // cam work
 
 
-ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
-                         float worldW, float worldH)
-{
-    // Translate to camera space
-    float dx = worldX - cam.worldX;
-    float dy = worldY - cam.worldY;
-
-    // Rotate by negative camera rotation (inverse transform)
-    float cosA = cosf(-cam.rotation);
-    float sinA = sinf(-cam.rotation);
-
-    float camX = dx * cosA - dy * sinA;
-    float camY = dx * sinA + dy * cosA;
-
-    // Apply zoom
-    camX *= cam.zoom;
-    camY *= cam.zoom;
-
-    // Convert to screen coordinates (camera center = screen center)
-    float screenX = camX + cam.viewWidth / 2.0f;
-    float screenY = camY + cam.viewHeight / 2.0f;
-
-    return {
-        static_cast<int32_t>(screenX),
-        static_cast<int32_t>(screenY),
-        static_cast<uint32_t>(worldW * cam.zoom),
-        static_cast<uint32_t>(worldH * cam.zoom)};
-}
 
 void Renderer::DrawSprite(uint32_t spriteId, size_t bufRefId)
 {
     //  Debugger::Instance().LogInfo("DrawSprite called - spriteId: " + std::to_string(spriteId) + ", bufRefId: " + std::to_string(bufRefId));
-     
-     // process pending JS writes
-     ProcessPendingRegions(bufRefId);
-     
 
-     AnimatedSprite* sprite = GetSprite(spriteId);
-     if (!sprite) {
-         Debugger::Instance().LogWarn("DrawSprite - Early return: sprite not found (spriteId: " + std::to_string(spriteId) + ")");
-         return;
-     }
-     
+    // process pending JS writes
+    ProcessPendingRegions(bufRefId);
 
-     SpriteAtlas* atlas = GetAtlas(sprite->atlasId);
-     if (!atlas) {
-         Debugger::Instance().LogWarn("DrawSprite - Early return: atlas not found (atlasId: " + std::to_string(sprite->atlasId) + ")");
-         return;
-     }
-     
-     //  get js camera state
-     CameraState cam = GetCameraState(bufRefId);
-     
-     // calculate world-space sprite bounds
-     float worldW = sprite->frameWidth * sprite->scaleX;
-     float worldH = sprite->frameHeight * sprite->scaleY;
-     
-     // frustum cull
-     if (!IsInFrustum(cam, sprite->x, sprite->y, worldW, worldH)) {
+    AnimatedSprite *sprite = GetSprite(spriteId);
+    if (!sprite)
+    {
+        Debugger::Instance().LogWarn("DrawSprite - Early return: sprite not found (spriteId: " + std::to_string(spriteId) + ")");
+        return;
+    }
+
+    SpriteAtlas *atlas = GetAtlas(sprite->atlasId);
+    if (!atlas)
+    {
+        Debugger::Instance().LogWarn("DrawSprite - Early return: atlas not found (atlasId: " + std::to_string(sprite->atlasId) + ")");
+        return;
+    }
+
+    //  get js camera state
+    CameraState cam = GetCameraState(bufRefId);
+
+    // calculate world-space sprite bounds
+    float worldW = sprite->frameWidth * sprite->scaleX;
+    float worldH = sprite->frameHeight * sprite->scaleY;
+
+    // frustum cull
+    if (!IsInFrustum(cam, sprite->x, sprite->y, worldW, worldH))
+    {
         //  Debugger::Instance().LogInfo("DrawSprite - Early return: sprite outside frustum (pos: " + std::to_string(sprite->x) + ", " + std::to_string(sprite->y) + ")");
-         return; // Off-screen, don't draw
-     }
-     
-     // convert to screen space
-     ScreenRect screenRect = WorldToScreen(cam, sprite->x, sprite->y, worldW, worldH);
-     
+        return; // Off-screen, don't draw
+    }
 
-     std::lock_guard<std::mutex> lock(buffers_mutex_);
-     if (bufRefId >= shared_buffers_ref.size()) {
-         Debugger::Instance().LogWarn("DrawSprite - Early return: bufRefId out of range (bufRefId: " + std::to_string(bufRefId) + ", size: " + std::to_string(shared_buffers_ref.size()) + ")");
-         return;
-     }
-     
-     SharedBufferRefs* s = shared_buffers_ref[bufRefId];
-     if (!s || !s->control) {
-         Debugger::Instance().LogWarn("DrawSprite - Early return: SharedBufferRefs or control is null (bufRefId: " + std::to_string(bufRefId) + ")");
-         return;
-     }
-    
-    std::atomic<uint32_t>* ctrl = reinterpret_cast<std::atomic<uint32_t>*>(s->control);
+    // convert to screen space
+    ScreenRect screenRect = WorldToScreen(cam, sprite->x, sprite->y, worldW, worldH);
+
+    std::lock_guard<std::mutex> lock(buffers_mutex_);
+    if (bufRefId >= shared_buffers_ref.size())
+    {
+        Debugger::Instance().LogWarn("DrawSprite - Early return: bufRefId out of range (bufRefId: " + std::to_string(bufRefId) + ", size: " + std::to_string(shared_buffers_ref.size()) + ")");
+        return;
+    }
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    if (!s || !s->control)
+    {
+        Debugger::Instance().LogWarn("DrawSprite - Early return: SharedBufferRefs or control is null (bufRefId: " + std::to_string(bufRefId) + ")");
+        return;
+    }
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
     uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
-    uint8_t* dstBuffer = s->pixel_buffers[js_write];
-    
+    uint8_t *dstBuffer = s->pixel_buffers[js_write];
+
     // get frame rect from atlas
     FrameRect srcRect = GetFrameRect(sprite, sprite->currentFrame);
-    
+
     // blit pixels (choose fast path if opaque)
-    if (sprite->opaque) {
-        BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect, 
-                           atlas, srcRect, sprite->flipH, sprite->flipV);
-    } else {
+    if (sprite->opaque)
+    {
+        BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
+                            atlas, srcRect, sprite->flipH, sprite->flipV);
+    }
+    else
+    {
         BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
-                          atlas, srcRect, sprite->flipH, sprite->flipV);
+                           atlas, srcRect, sprite->flipH, sprite->flipV);
     }
 
     // mark dirty region
     // Add region for the sprite's screen bounds
     uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
-    
-    if (dirty_count < MAX_DIRTY_REGIONS) {
+
+    if (dirty_count < MAX_DIRTY_REGIONS)
+    {
         uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
-        
+
         // Clamp to buffer bounds
         int32_t rx = screenRect.x < 0 ? 0 : screenRect.x;
         int32_t ry = screenRect.y < 0 ? 0 : screenRect.y;
         uint32_t rw = screenRect.width;
         uint32_t rh = screenRect.height;
-        
+
         if (rx + rw > s->width)
             rw = s->width - rx;
         if (ry + rh > s->height)
             rh = s->height - ry;
-        
+
         ctrl[offset + 0] = rx;
         ctrl[offset + 1] = ry;
         ctrl[offset + 2] = rw;
         ctrl[offset + 3] = rh;
-        
+
         ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
     }
 
     // Debug output
-    // Debugger::Instance().LogInfo("DrawSprite - ID: " + std::to_string(spriteId) + 
+    // Debugger::Instance().LogInfo("DrawSprite - ID: " + std::to_string(spriteId) +
     //                               " | Atlas: " + std::to_string(sprite->atlasId) +
     //                               " | Frame: " + std::to_string(sprite->currentFrame));
-    
-    // Debugger::Instance().LogInfo("DrawSprite - World Pos: (" + std::to_string(sprite->x) + 
-    //                               ", " + std::to_string(sprite->y) + 
-    //                               ") | World Size: " + std::to_string(worldW) + 
+
+    // Debugger::Instance().LogInfo("DrawSprite - World Pos: (" + std::to_string(sprite->x) +
+    //                               ", " + std::to_string(sprite->y) +
+    //                               ") | World Size: " + std::to_string(worldW) +
     //                               "x" + std::to_string(worldH));
-    
-    // Debugger::Instance().LogInfo("DrawSprite - Screen Rect: (" + std::to_string(screenRect.x) + 
-    //                               ", " + std::to_string(screenRect.y) + 
-    //                               ") | Screen Size: " + std::to_string(screenRect.width) + 
+
+    // Debugger::Instance().LogInfo("DrawSprite - Screen Rect: (" + std::to_string(screenRect.x) +
+    //                               ", " + std::to_string(screenRect.y) +
+    //                               ") | Screen Size: " + std::to_string(screenRect.width) +
     //                               "x" + std::to_string(screenRect.height));
-    
-    // Debugger::Instance().LogInfo("DrawSprite - Dirty Region Count: " + std::to_string(dirty_count) + 
+
+    // Debugger::Instance().LogInfo("DrawSprite - Dirty Region Count: " + std::to_string(dirty_count) +
     //                               "/" + std::to_string(MAX_DIRTY_REGIONS) +
     //                               " | Buffer ID: " + std::to_string(bufRefId) +
-    //                               " | Buffer Size: " + std::to_string(s->width) + 
+    //                               " | Buffer Size: " + std::to_string(s->width) +
     //                               "x" + std::to_string(s->height));
-    
-    // Debugger::Instance().LogInfo("DrawSprite - Scale: (" + std::to_string(sprite->scaleX) + 
-    //                               ", " + std::to_string(sprite->scaleY) + 
-    //                               ") | Flip: H=" + std::to_string(sprite->flipH) + 
+
+    // Debugger::Instance().LogInfo("DrawSprite - Scale: (" + std::to_string(sprite->scaleX) +
+    //                               ", " + std::to_string(sprite->scaleY) +
+    //                               ") | Flip: H=" + std::to_string(sprite->flipH) +
     //                               " V=" + std::to_string(sprite->flipV) +
     //                               " | Opaque: " + std::to_string(sprite->opaque));
-    
+
     // We do NOT swap buffers or set dirty flag here
     // That only happens on canvas.upload() in javascript, on js has the final say
 }
 
-
-// anim 
-
+// anim
 
 uint32_t Renderer::CreateSpriteWithAnimations(uint32_t atlasId, uint32_t frameWidth,
                                               uint32_t frameHeight, bool opaque,
-                                              const std::vector<AnimationDef>& animations)
+                                              const std::vector<AnimationDef> &animations)
 {
     // Create base sprite
-    AnimatedSprite* sprite = new AnimatedSprite();
+    AnimatedSprite *sprite = new AnimatedSprite();
     sprite->atlasId = atlasId;
     sprite->frameWidth = frameWidth;
     sprite->frameHeight = frameHeight;
     sprite->framesPerRow = 0; // Will be set from atlas
     sprite->opaque = opaque ? 1 : 0;
-    
+
     // Calculate frames per row from atlas
-    SpriteAtlas* atlas = GetAtlas(atlasId);
-    if (atlas) {
+    SpriteAtlas *atlas = GetAtlas(atlasId);
+    if (atlas)
+    {
         sprite->framesPerRow = atlas->width / frameWidth;
     }
-    
+
     // Load animations
     uint32_t nextAnimId = 1;
-    for (const auto& animDef : animations) {
-        SpriteAnimation* anim = new SpriteAnimation();
+    for (const auto &animDef : animations)
+    {
+        SpriteAnimation *anim = new SpriteAnimation();
         anim->name = animDef.name;
         anim->id = nextAnimId++;
         anim->fps = animDef.fps;
         anim->loop = animDef.loop;
         anim->frameCount = animDef.frames.size();
-        
+
         // Copy frame array
         anim->frames = new uint32_t[anim->frameCount];
-        for (size_t i = 0; i < anim->frameCount; i++) {
+        for (size_t i = 0; i < anim->frameCount; i++)
+        {
             anim->frames[i] = animDef.frames[i];
         }
-        
+
         // Store in dictionaries
         sprite->animations[anim->id] = anim;
         sprite->animationNames[anim->name] = anim->id;
     }
-    
+
     // Set initial frame to first frame of first animation (if any)
-    if (!animations.empty() && animations[0].frames.size() > 0) {
+    if (!animations.empty() && animations[0].frames.size() > 0)
+    {
         sprite->currentFrame = animations[0].frames[0];
     }
-    
+
     // Register sprite
     std::lock_guard<std::mutex> lock(sprite_mutex_);
     uint32_t id = next_sprite_id_++;
     sprites_[id] = sprite;
-    
-    Debugger::Instance().LogInfo("Created sprite " + std::to_string(id) + 
+
+    Debugger::Instance().LogInfo("Created sprite " + std::to_string(id) +
                                  " with " + std::to_string(animations.size()) + " animations");
-    
+
     return id;
 }
 
-void Renderer::PlayAnimation(uint32_t spriteId, const std::string& animName)
+void Renderer::PlayAnimation(uint32_t spriteId, const std::string &animName)
 {
-    AnimatedSprite* sprite = GetSprite(spriteId);
+    AnimatedSprite *sprite = GetSprite(spriteId);
     if (!sprite)
         return;
-    
+
     // Lookup animation ID by name
     auto it = sprite->animationNames.find(animName);
-    if (it == sprite->animationNames.end()) {
-        Debugger::Instance().LogWarn("Animation '" + animName + "' not found on sprite " + 
-                                        std::to_string(spriteId));
+    if (it == sprite->animationNames.end())
+    {
+        Debugger::Instance().LogWarn("Animation '" + animName + "' not found on sprite " +
+                                     std::to_string(spriteId));
         return;
     }
-    
+
     PlayAnimationById(spriteId, it->second);
 }
 
 void Renderer::PlayAnimationById(uint32_t spriteId, uint32_t animId)
 {
-    AnimatedSprite* sprite = GetSprite(spriteId);
+    AnimatedSprite *sprite = GetSprite(spriteId);
     if (!sprite)
         return;
-    
+
     // Get animation
     auto it = sprite->animations.find(animId);
     if (it == sprite->animations.end())
         return;
-    
-    SpriteAnimation* anim = it->second;
-    
+
+    SpriteAnimation *anim = it->second;
+
     // Switch to this animation
     sprite->currentAnimationId = animId;
     sprite->playing = 1;
     sprite->frameTimer = 0.0f;
-    
+
     // Set first frame
-    if (anim->frameCount > 0) {
+    if (anim->frameCount > 0)
+    {
         sprite->currentFrame = anim->frames[0];
     }
 }
 
-
 void Renderer::UpdateSpriteAnimations(float deltaTime)
 {
     std::lock_guard<std::mutex> lock(sprite_mutex_);
-    
-    for (auto& pair : sprites_) {
-        AnimatedSprite* sprite = pair.second;
-        
+
+    for (auto &pair : sprites_)
+    {
+        AnimatedSprite *sprite = pair.second;
+
         if (!sprite->playing || sprite->currentAnimationId == 0)
             continue;
-        
+
         // Get current animation
         auto it = sprite->animations.find(sprite->currentAnimationId);
         if (it == sprite->animations.end())
             continue;
-        
-        SpriteAnimation* anim = it->second;
-        
+
+        SpriteAnimation *anim = it->second;
+
         float frameDuration = 1.0f / anim->fps;
         sprite->frameTimer += deltaTime;
-        
+
         // Advance frames
-        while (sprite->frameTimer >= frameDuration) {
+        while (sprite->frameTimer >= frameDuration)
+        {
             sprite->frameTimer -= frameDuration;
-            
+
             // Find current frame index
             uint32_t currentIdx = 0;
-            for (uint32_t i = 0; i < anim->frameCount; i++) {
-                if (anim->frames[i] == sprite->currentFrame) {
+            for (uint32_t i = 0; i < anim->frameCount; i++)
+            {
+                if (anim->frames[i] == sprite->currentFrame)
+                {
                     currentIdx = i;
                     break;
                 }
             }
-            
+
             // Advance
             currentIdx++;
-            
+
             // Check end
-            if (currentIdx >= anim->frameCount) {
-                if (anim->loop) {
+            if (currentIdx >= anim->frameCount)
+            {
+                if (anim->loop)
+                {
                     currentIdx = 0;
-                } else {
+                }
+                else
+                {
                     currentIdx = anim->frameCount - 1;
                     sprite->playing = 0;
                     break;
                 }
             }
-            
+
             sprite->currentFrame = anim->frames[currentIdx];
         }
     }
 }
 
-uint32_t Renderer::CreateAnimator(const std::vector<std::string>& animNames,
-                                  const std::vector<std::vector<std::string>>& framePaths,
-                                  const std::vector<float>& fpsList,
-                                  const std::vector<bool>& loopList)
+uint32_t Renderer::CreateAnimator(const std::vector<std::string> &animNames,
+                                  const std::vector<std::vector<std::string>> &framePaths,
+                                  const std::vector<float> &fpsList,
+                                  const std::vector<bool> &loopList)
 {
-    Animator* animator = new Animator();
-    
+    Animator *animator = new Animator();
+
     uint32_t nextAnimId = 1;
-    for (size_t i = 0; i < animNames.size(); i++) {
-        MultiAtlasAnimation* anim = new MultiAtlasAnimation();
+    for (size_t i = 0; i < animNames.size(); i++)
+    {
+        MultiAtlasAnimation *anim = new MultiAtlasAnimation();
         anim->name = animNames[i];
         anim->id = nextAnimId++;
         anim->fps = fpsList[i];
         anim->loop = loopList[i];
-        
+
         // Load each frame's atlas
-        for (const std::string& path : framePaths[i]) {
+        for (const std::string &path : framePaths[i])
+        {
             uint32_t atlasId = LoadAtlas(path);
-            
-            if (atlasId == 0) {
+
+            if (atlasId == 0)
+            {
                 Debugger::Instance().LogError("Failed to load animator frame: " + path);
                 continue;
             }
-            
-            SpriteAtlas* atlas = GetAtlas(atlasId);
+
+            SpriteAtlas *atlas = GetAtlas(atlasId);
             AnimatorFrame frame;
             frame.atlasId = atlasId;
             frame.width = atlas->width;
             frame.height = atlas->height;
-            
+
             anim->frames.push_back(frame);
         }
-        
+
         animator->animations[anim->id] = anim;
         animator->animationNames[anim->name] = anim->id;
-        
-        Debugger::Instance().LogInfo("Loaded animation '" + anim->name + 
+
+        Debugger::Instance().LogInfo("Loaded animation '" + anim->name +
                                      "' with " + std::to_string(anim->frames.size()) + " frames");
     }
-    
+
     std::lock_guard<std::mutex> lock(animator_mutex_);
     uint32_t id = next_animator_id_++;
     animators_[id] = animator;
-    
+
     return id;
 }
 
@@ -874,8 +1216,8 @@ void Renderer::UpdateAnimator(uint32_t animatorId, float x, float y, float rotat
     auto it = animators_.find(animatorId);
     if (it == animators_.end())
         return;
-    
-    Animator* anim = it->second;
+
+    Animator *anim = it->second;
     anim->x = x;
     anim->y = y;
     anim->rotation = rotation;
@@ -885,18 +1227,18 @@ void Renderer::UpdateAnimator(uint32_t animatorId, float x, float y, float rotat
     anim->flipV = flipV ? 1 : 0;
 }
 
-void Renderer::PlayAnimatorAnimation(uint32_t animatorId, const std::string& animName)
+void Renderer::PlayAnimatorAnimation(uint32_t animatorId, const std::string &animName)
 {
     std::lock_guard<std::mutex> lock(animator_mutex_);
     auto it = animators_.find(animatorId);
     if (it == animators_.end())
         return;
-    
-    Animator* animator = it->second;
+
+    Animator *animator = it->second;
     auto nameIt = animator->animationNames.find(animName);
     if (nameIt == animator->animationNames.end())
         return;
-    
+
     animator->currentAnimationId = nameIt->second;
     animator->currentFrameIndex = 0;
     animator->frameTimer = 0.0f;
@@ -909,64 +1251,65 @@ void Renderer::DrawAnimator(uint32_t animatorId, size_t bufRefId)
     auto it = animators_.find(animatorId);
     if (it == animators_.end())
         return;
-    
-    Animator* animator = it->second;
-    
+
+    Animator *animator = it->second;
+
     if (animator->currentAnimationId == 0)
         return;
-    
+
     auto animIt = animator->animations.find(animator->currentAnimationId);
     if (animIt == animator->animations.end())
         return;
-    
-    MultiAtlasAnimation* anim = animIt->second;
-    
+
+    MultiAtlasAnimation *anim = animIt->second;
+
     if (animator->currentFrameIndex >= anim->frames.size())
         return;
-    
+
     // Get current frame
-    AnimatorFrame& frame = anim->frames[animator->currentFrameIndex];
-    SpriteAtlas* atlas = GetAtlas(frame.atlasId);
+    AnimatorFrame &frame = anim->frames[animator->currentFrameIndex];
+    SpriteAtlas *atlas = GetAtlas(frame.atlasId);
     if (!atlas)
         return;
-    
+
     // Get camera
     CameraState cam = GetCameraState(bufRefId);
-    
+
     // Calculate world bounds
     float worldW = frame.width * animator->scaleX;
     float worldH = frame.height * animator->scaleY;
-    
+
     // Frustum cull
     if (!IsInFrustum(cam, animator->x, animator->y, worldW, worldH))
         return;
-    
+
     // Convert to screen
     ScreenRect screenRect = WorldToScreen(cam, animator->x, animator->y, worldW, worldH);
-    
+
     // Get write buffer
     std::lock_guard<std::mutex> bufLock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
         return;
-    
-    SharedBufferRefs* s = shared_buffers_ref[bufRefId];
+
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
     if (!s || !s->control)
         return;
-    
-    std::atomic<uint32_t>* ctrl = reinterpret_cast<std::atomic<uint32_t>*>(s->control);
+
+    std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
     uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
-    uint8_t* dstBuffer = s->pixel_buffers[js_write];
-    
+    uint8_t *dstBuffer = s->pixel_buffers[js_write];
+
     // Source rect is entire atlas (loose sprite)
-    FrameRect srcRect = { 0, 0, frame.width, frame.height };
-    
+    FrameRect srcRect = {0, 0, frame.width, frame.height};
+
     // Blit (assume non-opaque for loose sprites)
     BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
-                      atlas, srcRect, animator->flipH, animator->flipV);
-    
+                       atlas, srcRect, animator->flipH, animator->flipV);
+
     // Mark dirty
     uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
-    if (dirty_count < MAX_DIRTY_REGIONS) {
+    if (dirty_count < MAX_DIRTY_REGIONS)
+    {
         uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
         ctrl[offset + 0] = screenRect.x;
         ctrl[offset + 1] = screenRect.y;
@@ -979,30 +1322,36 @@ void Renderer::DrawAnimator(uint32_t animatorId, size_t bufRefId)
 void Renderer::UpdateAnimators(float deltaTime)
 {
     std::lock_guard<std::mutex> lock(animator_mutex_);
-    
-    for (auto& pair : animators_) {
-        Animator* animator = pair.second;
-        
+
+    for (auto &pair : animators_)
+    {
+        Animator *animator = pair.second;
+
         if (!animator->playing || animator->currentAnimationId == 0)
             continue;
-        
+
         auto it = animator->animations.find(animator->currentAnimationId);
         if (it == animator->animations.end())
             continue;
-        
-        MultiAtlasAnimation* anim = it->second;
-        
+
+        MultiAtlasAnimation *anim = it->second;
+
         float frameDuration = 1.0f / anim->fps;
         animator->frameTimer += deltaTime;
-        
-        while (animator->frameTimer >= frameDuration) {
+
+        while (animator->frameTimer >= frameDuration)
+        {
             animator->frameTimer -= frameDuration;
             animator->currentFrameIndex++;
-            
-            if (animator->currentFrameIndex >= anim->frames.size()) {
-                if (anim->loop) {
+
+            if (animator->currentFrameIndex >= anim->frames.size())
+            {
+                if (anim->loop)
+                {
                     animator->currentFrameIndex = 0;
-                } else {
+                }
+                else
+                {
                     animator->currentFrameIndex = anim->frames.size() - 1;
                     animator->playing = 0;
                     break;
@@ -1016,7 +1365,8 @@ void Renderer::DestroyAnimator(uint32_t animatorId)
 {
     std::lock_guard<std::mutex> lock(animator_mutex_);
     auto it = animators_.find(animatorId);
-    if (it != animators_.end()) {
+    if (it != animators_.end())
+    {
         delete it->second;
         animators_.erase(it);
     }
