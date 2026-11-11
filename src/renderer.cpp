@@ -8,6 +8,7 @@
 #include "audio_manager.h"
 #include <debugger.h>
 #include <algorithm>
+#include <cmath>
 
 
 
@@ -235,6 +236,80 @@ void BlitSpriteNN_Alpha(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeigh
 }
 
 
+void BlitSpriteRotated(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeight,
+                       float centerX, float centerY, float width, float height,
+                       float rotation, const SpriteAtlas *atlas, const FrameRect &srcRect,
+                       bool flipH, bool flipV, bool opaque)
+{
+    const float cosRotation = std::cos(rotation);
+    const float sinRotation = std::sin(rotation);
+    const float halfWidth = width / 2.0f;
+    const float halfHeight = height / 2.0f;
+    const float extentX = std::abs(halfWidth * cosRotation) +
+                          std::abs(halfHeight * sinRotation);
+    const float extentY = std::abs(halfWidth * sinRotation) +
+                          std::abs(halfHeight * cosRotation);
+    const int32_t left = std::max(0, static_cast<int32_t>(std::floor(centerX - extentX)));
+    const int32_t right = std::min(static_cast<int32_t>(dstWidth),
+                                   static_cast<int32_t>(std::ceil(centerX + extentX)));
+    const int32_t top = std::max(0, static_cast<int32_t>(std::floor(centerY - extentY)));
+    const int32_t bottom = std::min(static_cast<int32_t>(dstHeight),
+                                    static_cast<int32_t>(std::ceil(centerY + extentY)));
+
+    for (int32_t y = top; y < bottom; ++y)
+    {
+        for (int32_t x = left; x < right; ++x)
+        {
+            const float dx = x + 0.5f - centerX;
+            const float dy = y + 0.5f - centerY;
+            const float localX = dx * cosRotation + dy * sinRotation;
+            const float localY = -dx * sinRotation + dy * cosRotation;
+            if (localX < -halfWidth || localX >= halfWidth ||
+                localY < -halfHeight || localY >= halfHeight)
+                continue;
+
+            uint32_t sourceX = static_cast<uint32_t>(
+                (localX + halfWidth) * srcRect.w / width);
+            uint32_t sourceY = static_cast<uint32_t>(
+                (localY + halfHeight) * srcRect.h / height);
+            sourceX = std::min(sourceX, srcRect.w - 1);
+            sourceY = std::min(sourceY, srcRect.h - 1);
+            if (flipH)
+                sourceX = srcRect.w - 1 - sourceX;
+            if (flipV)
+                sourceY = srcRect.h - 1 - sourceY;
+
+            const uint32_t sourceIndex =
+                ((srcRect.y + sourceY) * atlas->width + srcRect.x + sourceX) * 4;
+            const uint32_t destinationIndex = (y * dstWidth + x) * 4;
+            const uint8_t alpha = opaque ? 255 : atlas->data[sourceIndex + 3];
+            if (alpha == 0)
+                continue;
+
+            if (alpha == 255)
+            {
+                dstBuffer[destinationIndex] = atlas->data[sourceIndex];
+                dstBuffer[destinationIndex + 1] = atlas->data[sourceIndex + 1];
+                dstBuffer[destinationIndex + 2] = atlas->data[sourceIndex + 2];
+                dstBuffer[destinationIndex + 3] = 255;
+                continue;
+            }
+
+            const uint32_t inverseAlpha = 255 - alpha;
+            for (uint32_t channel = 0; channel < 3; ++channel)
+            {
+                dstBuffer[destinationIndex + channel] = static_cast<uint8_t>(
+                    (atlas->data[sourceIndex + channel] * alpha +
+                     dstBuffer[destinationIndex + channel] * inverseAlpha + 127) /
+                    255);
+            }
+            dstBuffer[destinationIndex + 3] = static_cast<uint8_t>(
+                (alpha * 255 + dstBuffer[destinationIndex + 3] * inverseAlpha + 127) /
+                255);
+        }
+    }
+}
+
 Renderer::Renderer() : width_(0), height_(0), initialized_(false),
                        nextTextureId_(1), nextRenderTextureId_(1000000),
                        currentRenderTargetId_(0), inTextureMode_(false) {}
@@ -438,6 +513,25 @@ uint32_t Renderer::LoadTiledMap(const std::string &path)
                                      "' as atlas " + std::to_string(atlasId));
     }
 
+       for (auto *layer : map->layers)
+       {
+           if (layer->type == TiledLayerType::OBJECT && layer->objectLayer)
+           {
+               InitializeObjectLayer(layer->objectLayer, map);
+           }
+
+           if (layer->type == TiledLayerType::COLLISION &&
+               !layer->CollisionShapes.empty())
+           {
+               const size_t beforeCount = layer->CollisionShapes.size();
+               MergeCollisionBoxes(layer->CollisionShapes);
+               Debugger::Instance().LogInfo(
+                   "Reduced collision shapes in layer '" + layer->name + "' from " +
+                   std::to_string(beforeCount) + " to " +
+                   std::to_string(layer->CollisionShapes.size()));
+           }
+       }
+
     std::lock_guard<std::mutex> lock(tiled_mutex_);
     uint32_t id = next_tiled_map_id_++;
     tiledMaps_[id] = map;
@@ -457,12 +551,162 @@ TiledMap *Renderer::GetTiledMap(uint32_t mapId)
     return it->second;
 }
 
+void Renderer::MergeCollisionBoxes(std::vector<CollisionShape> &shapes)
+{
+    std::vector<CollisionShape> boxes;
+    std::vector<CollisionShape> nonBoxes;
+    boxes.reserve(shapes.size());
+    nonBoxes.reserve(shapes.size());
+
+    for (const CollisionShape &shape : shapes)
+    {
+        if (shape.type == CollisionShapeType::BOX)
+            boxes.push_back(shape);
+        else
+            nonBoxes.push_back(shape);
+    }
+
+    if (boxes.empty())
+        return;
+
+    std::sort(boxes.begin(), boxes.end(),
+              [](const CollisionShape &a, const CollisionShape &b)
+              {
+                  if (a.y != b.y)
+                      return a.y < b.y;
+                  return a.x < b.x;
+              });
+
+    bool merged = true;
+    while (merged)
+    {
+        merged = false;
+        for (size_t i = 0; i < boxes.size() && !merged; ++i)
+        {
+            for (size_t j = i + 1; j < boxes.size(); ++j)
+            {
+                const CollisionShape &a = boxes[i];
+                const CollisionShape &b = boxes[j];
+                CollisionShape mergedBox = a;
+                bool canMerge = false;
+
+                if (a.y == b.y && a.height == b.height)
+                {
+                    if (a.x + a.width == b.x)
+                    {
+                        mergedBox.width = a.width + b.width;
+                        mergedBox.name = a.name + "_" + b.name;
+                        canMerge = true;
+                    }
+                    else if (b.x + b.width == a.x)
+                    {
+                        mergedBox.x = b.x;
+                        mergedBox.width = a.width + b.width;
+                        mergedBox.name = b.name + "_" + a.name;
+                        canMerge = true;
+                    }
+                }
+
+                if (!canMerge && a.x == b.x && a.width == b.width)
+                {
+                    if (a.y + a.height == b.y)
+                    {
+                        mergedBox.height = a.height + b.height;
+                        mergedBox.name = a.name + "_" + b.name;
+                        canMerge = true;
+                    }
+                    else if (b.y + b.height == a.y)
+                    {
+                        mergedBox.y = b.y;
+                        mergedBox.height = a.height + b.height;
+                        mergedBox.name = b.name + "_" + a.name;
+                        canMerge = true;
+                    }
+                }
+
+                if (canMerge)
+                {
+                    mergedBox.type = CollisionShapeType::BOX;
+                    boxes[i] = std::move(mergedBox);
+                    boxes.erase(boxes.begin() + j);
+                    merged = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    shapes.clear();
+    shapes.reserve(boxes.size() + nonBoxes.size());
+    shapes.insert(shapes.end(), boxes.begin(), boxes.end());
+    shapes.insert(shapes.end(), nonBoxes.begin(), nonBoxes.end());
+
+    Debugger::Instance().LogInfo(
+        "Merged collision boxes: " + std::to_string(boxes.size()) +
+        " boxes, " + std::to_string(nonBoxes.size()) + " other shapes");
+}
+
+std::vector<float> Renderer::GetTiledCollisions(uint32_t mapId)
+{
+    std::vector<float> data;
+    TiledMap *map = GetTiledMap(mapId);
+    if (!map)
+        return data;
+
+    for (const TiledLayer *layer : map->layers)
+    {
+        if (layer->type != TiledLayerType::COLLISION)
+            continue;
+
+        for (const CollisionShape &shape : layer->CollisionShapes)
+        {
+            data.push_back(static_cast<float>(shape.type));
+            data.push_back(shape.x);
+            data.push_back(shape.y);
+
+            switch (shape.type)
+            {
+            case CollisionShapeType::BOX:
+                data.push_back(shape.width);
+                data.push_back(shape.height);
+                break;
+
+            case CollisionShapeType::CIRCLE:
+                data.push_back(shape.radius);
+                break;
+
+            case CollisionShapeType::POLYGON:
+                data.push_back(static_cast<float>(shape.points.size() / 2));
+                data.insert(data.end(), shape.points.begin(), shape.points.end());
+                break;
+
+            case CollisionShapeType::POINT:
+                break;
+            }
+        }
+    }
+
+    Debugger::Instance().LogInfo(
+        "Exported " + std::to_string(data.size()) +
+        " collision floats for map " + std::to_string(mapId));
+    return data;
+}
+
 void Renderer::DestroyTiledMap(uint32_t mapId)
 {
     std::lock_guard<std::mutex> lock(tiled_mutex_);
     auto it = tiledMaps_.find(mapId);
     if (it != tiledMaps_.end())
     {
+        for (TiledLayer *layer : it->second->layers)
+        {
+            if (layer->type != TiledLayerType::OBJECT || !layer->objectLayer)
+                continue;
+
+            for (const TiledObjectInstance &instance : layer->objectLayer->spriteInstances)
+                DestroySprite(instance.spriteId);
+        }
+
         delete it->second;
         tiledMaps_.erase(it);
     }
@@ -730,37 +974,119 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
 
 void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
 {
-    // Get map
-    TiledMap* map = GetTiledMap(mapId);
+    TiledMap *map = GetTiledMap(mapId);
     if (!map)
         return;
-    
-    // Process pending JS writes
+
     ProcessPendingRegions(bufRefId);
-    
-    // Get camera state
-    CameraState cam = GetCameraState(bufRefId);
-    
-    // Render each layer
-    for (size_t i = 0; i < map->layers.size(); i++) {
-        TiledLayer* layer = map->layers[i];
-        
+
+    const CameraState cam = GetCameraState(bufRefId);
+    for (TiledLayer *layer : map->layers)
+    {
         if (!layer->visible)
             continue;
-        
-        switch (layer->type) {
+
+        switch (layer->type)
+        {
             case TiledLayerType::TILE:
                 RenderTileLayer(layer->tileLayer, map, bufRefId, cam, chunked);
                 break;
-            
+
             case TiledLayerType::OBJECT:
-                // TODO: Chapter 10
+                RenderObjectLayer(layer->objectLayer, bufRefId, cam);
                 break;
-            
+
             case TiledLayerType::COLLISION:
-                // Collision layers don't render
                 break;
         }
+    }
+}
+
+void Renderer::InitializeObjectLayer(TiledObjectLayer *objLayer, TiledMap *map)
+{
+    if (!objLayer || !map)
+        return;
+
+    objLayer->spriteInstances.reserve(objLayer->objects.size());
+    for (const TiledObject &obj : objLayer->objects)
+    {
+        const uint32_t tileId = obj.gid & 0x0FFFFFFFu;
+        if (tileId == 0)
+            continue;
+
+        TilesetLookup lookup = FindTileset(map, tileId);
+        if (!lookup.tileset || lookup.tileset->atlasId == 0 ||
+            lookup.tileset->tileWidth == 0 || lookup.tileset->tileHeight == 0 ||
+            lookup.localid >= lookup.tileset->tileCount)
+        {
+            Debugger::Instance().LogWarn("Object references invalid gid: " +
+                                         std::to_string(tileId));
+            continue;
+        }
+
+        const uint32_t spriteId = CreateSprite(
+            lookup.tileset->atlasId,
+            lookup.tileset->tileWidth,
+            lookup.tileset->tileHeight,
+            lookup.tileset->tileCount,
+            false);
+
+        if (spriteId == 0) {
+            Debugger::Instance().LogError("Failed to create sprite for object");
+            continue;
+        }
+
+        AnimatedSprite *sprite = GetSprite(spriteId);
+        if (sprite) {
+            sprite->currentFrame = lookup.localid;
+        }
+
+        TiledObjectInstance instance;
+        instance.spriteId = spriteId;
+        instance.originalX = obj.x + objLayer->offsetX;
+        instance.originalY = obj.y + objLayer->offsetY;
+        instance.rotation = obj.rotation * (3.14159265358979323846f / 180.0f);
+        instance.scaleX = obj.width > 0.0f
+                              ? obj.width / lookup.tileset->tileWidth
+                              : 1.0f;
+        instance.scaleY = obj.height > 0.0f
+                              ? obj.height / lookup.tileset->tileHeight
+                              : 1.0f;
+        instance.flipH = (obj.gid & 0x80000000u) != 0;
+        instance.flipV = (obj.gid & 0x40000000u) != 0;
+        instance.visible = obj.visible;
+
+        objLayer->spriteInstances.push_back(instance);
+    }
+
+    Debugger::Instance().LogInfo("Initialized " +
+                                 std::to_string(objLayer->spriteInstances.size()) +
+                                 " objects in layer '" + objLayer->name + "'");
+}
+
+void Renderer::RenderObjectLayer(TiledObjectLayer *objLayer, size_t bufRefId,
+                                 const CameraState &cam)
+{
+    if (!objLayer)
+        return;
+
+    for (const TiledObjectInstance &instance : objLayer->spriteInstances)
+    {
+        if (!instance.visible)
+            continue;
+
+        AnimatedSprite *sprite = GetSprite(instance.spriteId);
+        if (!sprite)
+            continue;
+
+        sprite->x = instance.originalX;
+        sprite->y = instance.originalY;
+        sprite->rotation = instance.rotation;
+        sprite->scaleX = instance.scaleX;
+        sprite->scaleY = instance.scaleY;
+        sprite->flipH = instance.flipH;
+        sprite->flipV = instance.flipV;
+        DrawSprite_Internal(instance.spriteId, bufRefId, cam);
     }
 }
 
@@ -941,131 +1267,159 @@ FrameRect GetFrameRect(AnimatedSprite *sprite, uint32_t frameIndex)
 
 void Renderer::DrawSprite(uint32_t spriteId, size_t bufRefId)
 {
-    //  Debugger::Instance().LogInfo("DrawSprite called - spriteId: " + std::to_string(spriteId) + ", bufRefId: " + std::to_string(bufRefId));
-
-    // process pending JS writes
     ProcessPendingRegions(bufRefId);
+    DrawSprite_Internal(spriteId, bufRefId, GetCameraState(bufRefId));
+}
 
+void Renderer::DrawSprite_Internal(uint32_t spriteId, size_t bufRefId,
+                                   const CameraState &cam)
+{
     AnimatedSprite *sprite = GetSprite(spriteId);
     if (!sprite)
     {
-        Debugger::Instance().LogWarn("DrawSprite - Early return: sprite not found (spriteId: " + std::to_string(spriteId) + ")");
+        Debugger::Instance().LogWarn("DrawSprite - sprite not found: " +
+                                     std::to_string(spriteId));
         return;
     }
 
     SpriteAtlas *atlas = GetAtlas(sprite->atlasId);
     if (!atlas)
     {
-        Debugger::Instance().LogWarn("DrawSprite - Early return: atlas not found (atlasId: " + std::to_string(sprite->atlasId) + ")");
+        Debugger::Instance().LogWarn("DrawSprite - atlas not found: " +
+                                     std::to_string(sprite->atlasId));
         return;
     }
 
-    //  get js camera state
-    CameraState cam = GetCameraState(bufRefId);
+    if (sprite->frameWidth == 0 || sprite->frameHeight == 0 ||
+        sprite->framesPerRow == 0 || sprite->scaleX <= 0.0f ||
+        sprite->scaleY <= 0.0f || cam.zoom <= 0.0f)
+        return;
 
-    // calculate world-space sprite bounds
     float worldW = sprite->frameWidth * sprite->scaleX;
     float worldH = sprite->frameHeight * sprite->scaleY;
-
-    // frustum cull
-    if (!IsInFrustum(cam, sprite->x, sprite->y, worldW, worldH))
+    const float cosRotation = std::cos(sprite->rotation);
+    const float sinRotation = std::sin(sprite->rotation);
+    const float boundsW = std::abs(worldW * cosRotation) +
+                          std::abs(worldH * sinRotation);
+    const float boundsH = std::abs(worldW * sinRotation) +
+                          std::abs(worldH * cosRotation);
+    const float centerWorldX = sprite->x + worldW / 2.0f;
+    const float centerWorldY = sprite->y + worldH / 2.0f;
+    if (!IsInFrustum(cam, centerWorldX, centerWorldY, boundsW, boundsH))
     {
-        //  Debugger::Instance().LogInfo("DrawSprite - Early return: sprite outside frustum (pos: " + std::to_string(sprite->x) + ", " + std::to_string(sprite->y) + ")");
-        return; // Off-screen, don't draw
+        return;
     }
 
-    // convert to screen space
-    ScreenRect screenRect = WorldToScreen(cam, sprite->x, sprite->y, worldW, worldH);
+    const float screenRotation = sprite->rotation - cam.rotation;
+    const float screenW = worldW * cam.zoom;
+    const float screenH = worldH * cam.zoom;
+    ScreenRect screenRect;
+    const bool transformed = std::abs(screenRotation) > 0.000001f ||
+                             std::abs(cam.rotation) > 0.000001f ||
+                             std::abs(sprite->rotation) > 0.000001f;
+    float centerScreenX = 0.0f;
+    float centerScreenY = 0.0f;
+    if (transformed)
+    {
+        const float dx = centerWorldX - cam.worldX;
+        const float dy = centerWorldY - cam.worldY;
+        const float cosCamera = std::cos(cam.rotation);
+        const float sinCamera = std::sin(cam.rotation);
+        centerScreenX = (dx * cosCamera + dy * sinCamera) * cam.zoom +
+                        cam.viewWidth / 2.0f;
+        centerScreenY = (-dx * sinCamera + dy * cosCamera) * cam.zoom +
+                        cam.viewHeight / 2.0f;
+
+        const float extentX = (std::abs(screenW * std::cos(screenRotation)) +
+                               std::abs(screenH * std::sin(screenRotation))) /
+                              2.0f;
+        const float extentY = (std::abs(screenW * std::sin(screenRotation)) +
+                               std::abs(screenH * std::cos(screenRotation))) /
+                              2.0f;
+        const int32_t left = static_cast<int32_t>(std::floor(centerScreenX - extentX));
+        const int32_t top = static_cast<int32_t>(std::floor(centerScreenY - extentY));
+        screenRect = {
+            left,
+            top,
+            static_cast<uint32_t>(std::ceil(centerScreenX + extentX) - left),
+            static_cast<uint32_t>(std::ceil(centerScreenY + extentY) - top)};
+    }
+    else
+    {
+        screenRect = WorldToScreen(cam, sprite->x, sprite->y, worldW, worldH);
+    }
+
+    const FrameRect srcRect = GetFrameRect(sprite, sprite->currentFrame);
+    if (srcRect.w == 0 || srcRect.h == 0 ||
+        static_cast<uint64_t>(srcRect.x) + srcRect.w > atlas->width ||
+        static_cast<uint64_t>(srcRect.y) + srcRect.h > atlas->height)
+        return;
 
     std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
     {
-        Debugger::Instance().LogWarn("DrawSprite - Early return: bufRefId out of range (bufRefId: " + std::to_string(bufRefId) + ", size: " + std::to_string(shared_buffers_ref.size()) + ")");
+        Debugger::Instance().LogWarn("DrawSprite - buffer reference out of range: " +
+                                     std::to_string(bufRefId));
         return;
     }
 
     SharedBufferRefs *s = shared_buffers_ref[bufRefId];
     if (!s || !s->control)
     {
-        Debugger::Instance().LogWarn("DrawSprite - Early return: SharedBufferRefs or control is null (bufRefId: " + std::to_string(bufRefId) + ")");
+        Debugger::Instance().LogWarn("DrawSprite - buffer reference is incomplete");
         return;
     }
 
     std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
     uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    if (js_write >= 3 || !s->pixel_buffers[js_write])
+    {
+        Debugger::Instance().LogWarn("DrawSprite - write buffer is unavailable");
+        return;
+    }
+
     uint8_t *dstBuffer = s->pixel_buffers[js_write];
 
-    // get frame rect from atlas
-    FrameRect srcRect = GetFrameRect(sprite, sprite->currentFrame);
-
-    // blit pixels (choose fast path if opaque)
-    if (sprite->opaque)
+    if (transformed)
     {
-        BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
-                            atlas, srcRect, sprite->flipH, sprite->flipV);
+        BlitSpriteRotated(dstBuffer, s->width, s->height, centerScreenX,
+                          centerScreenY, screenW, screenH, screenRotation,
+                          atlas, srcRect, sprite->flipH, sprite->flipV,
+                          sprite->opaque);
     }
     else
     {
-        BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
-                           atlas, srcRect, sprite->flipH, sprite->flipV);
+        if (sprite->opaque)
+        {
+            BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
+                                atlas, srcRect, sprite->flipH, sprite->flipV);
+        }
+        else
+        {
+            BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
+                               atlas, srcRect, sprite->flipH, sprite->flipV);
+        }
     }
 
-    // mark dirty region
-    // Add region for the sprite's screen bounds
     uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
-
     if (dirty_count < MAX_DIRTY_REGIONS)
     {
-        uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
-
-        // Clamp to buffer bounds
-        int32_t rx = screenRect.x < 0 ? 0 : screenRect.x;
-        int32_t ry = screenRect.y < 0 ? 0 : screenRect.y;
-        uint32_t rw = screenRect.width;
-        uint32_t rh = screenRect.height;
-
-        if (rx + rw > s->width)
-            rw = s->width - rx;
-        if (ry + rh > s->height)
-            rh = s->height - ry;
-
-        ctrl[offset + 0] = rx;
-        ctrl[offset + 1] = ry;
-        ctrl[offset + 2] = rw;
-        ctrl[offset + 3] = rh;
-
-        ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
+        const int32_t left = std::max<int32_t>(0, screenRect.x);
+        const int32_t top = std::max<int32_t>(0, screenRect.y);
+        const int32_t right = std::min<int32_t>(
+            s->width, screenRect.x + static_cast<int32_t>(screenRect.width));
+        const int32_t bottom = std::min<int32_t>(
+            s->height, screenRect.y + static_cast<int32_t>(screenRect.height));
+        if (right > left && bottom > top)
+        {
+            const uint32_t offset = CTRL_DIRTY_REGIONS + dirty_count * 4;
+            ctrl[offset] = left;
+            ctrl[offset + 1] = top;
+            ctrl[offset + 2] = right - left;
+            ctrl[offset + 3] = bottom - top;
+            ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
+        }
     }
-
-    // Debug output
-    // Debugger::Instance().LogInfo("DrawSprite - ID: " + std::to_string(spriteId) +
-    //                               " | Atlas: " + std::to_string(sprite->atlasId) +
-    //                               " | Frame: " + std::to_string(sprite->currentFrame));
-
-    // Debugger::Instance().LogInfo("DrawSprite - World Pos: (" + std::to_string(sprite->x) +
-    //                               ", " + std::to_string(sprite->y) +
-    //                               ") | World Size: " + std::to_string(worldW) +
-    //                               "x" + std::to_string(worldH));
-
-    // Debugger::Instance().LogInfo("DrawSprite - Screen Rect: (" + std::to_string(screenRect.x) +
-    //                               ", " + std::to_string(screenRect.y) +
-    //                               ") | Screen Size: " + std::to_string(screenRect.width) +
-    //                               "x" + std::to_string(screenRect.height));
-
-    // Debugger::Instance().LogInfo("DrawSprite - Dirty Region Count: " + std::to_string(dirty_count) +
-    //                               "/" + std::to_string(MAX_DIRTY_REGIONS) +
-    //                               " | Buffer ID: " + std::to_string(bufRefId) +
-    //                               " | Buffer Size: " + std::to_string(s->width) +
-    //                               "x" + std::to_string(s->height));
-
-    // Debugger::Instance().LogInfo("DrawSprite - Scale: (" + std::to_string(sprite->scaleX) +
-    //                               ", " + std::to_string(sprite->scaleY) +
-    //                               ") | Flip: H=" + std::to_string(sprite->flipH) +
-    //                               " V=" + std::to_string(sprite->flipV) +
-    //                               " | Opaque: " + std::to_string(sprite->opaque));
-
-    // We do NOT swap buffers or set dirty flag here
-    // That only happens on canvas.upload() in javascript, on js has the final say
 }
 
 // anim

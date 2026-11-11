@@ -62,9 +62,22 @@ struct TiledObject
     uint32_t gid; // Tile gid (for sprite objects)
     float x, y;
     float width, height;
-    float rotation;
+    float rotation;        // Tiled rotation (degrees)
     std::string name;
     std::string type;
+    bool visible;
+};
+
+struct TiledObjectInstance
+{
+    uint32_t spriteId;
+    float originalX;
+    float originalY;
+    float rotation;
+    float scaleX;
+    float scaleY;
+    bool flipH;
+    bool flipV;
     bool visible;
 };
 
@@ -73,6 +86,7 @@ struct TiledObjectLayer
 {
     std::string name;
     std::vector<TiledObject> objects;
+    std::vector<TiledObjectInstance> spriteInstances;
     int32_t offsetX;
     int32_t offsetY;
     bool visible;

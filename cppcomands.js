@@ -164,6 +164,40 @@ const tilePath = "/home/sk/workspace/js/tessera/assets/tiled/map.json"
 const mapId = renderer.loadTiledMap(tilePath);
 console.log("loaded map: ", mapId)
 
+function getTiledCollisionObjects(mapId) {
+    const data = renderer.getTiledCollisions(mapId);
+    const shapes = [];
+    let offset = 0;
+
+    while (offset < data.length) {
+        const type = data[offset++];
+        const x = data[offset++];
+        const y = data[offset++];
+
+        if (type === 0) {
+            shapes.push({ type: "box", x, y, width: data[offset++], height: data[offset++] });
+        } else if (type === 1) {
+            shapes.push({ type: "circle", x, y, radius: data[offset++] });
+        } else if (type === 2) {
+            const pointCount = data[offset++];
+            const points = [];
+            for (let point = 0; point < pointCount; point++) {
+                points.push({ x: data[offset++], y: data[offset++] });
+            }
+            shapes.push({ type: "polygon", x, y, points });
+        } else if (type === 3) {
+            shapes.push({ type: "point", x, y });
+        } else {
+            throw new Error(`Unknown Tiled collision shape type: ${type}`);
+        }
+    }
+
+    return shapes;
+}
+
+const collisionObjects = getTiledCollisionObjects(mapId);
+console.log(collisionObjects.map(shape => JSON.stringify(shape)).join("\n"));
+
 const canvas = new PixelBuffer(renderer, 800, 600);
 
 // Simulate a C++ command that writes to the buffer

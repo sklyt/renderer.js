@@ -408,8 +408,13 @@ public:
     uint32_t LoadTiledMap(const std::string &path);
     TiledMap *GetTiledMap(uint32_t mapid);
     void DestroyTiledMap(uint32_t mapId);
+    void MergeCollisionBoxes(std::vector<CollisionShape> &shapes);
+    std::vector<float> GetTiledCollisions(uint32_t mapId);
 
     void DrawTiledMap(uint32_t mapId, size_t bufredId, bool chunked = false);
+    void InitializeObjectLayer(TiledObjectLayer *layer, TiledMap *map);
+    void RenderObjectLayer(TiledObjectLayer *layer, size_t bufRefId,
+                           const CameraState &cam);
 
 private:
     int width_;
@@ -441,6 +446,8 @@ private:
     std::thread buffer_update_thread_;
 
     void BufferUpdateThread();
+    void DrawSprite_Internal(uint32_t spriteId, size_t bufRefId,
+                             const CameraState &cam);
 
     // tiled
     std::unordered_map<uint32_t, TiledMap *> tiledMaps_;

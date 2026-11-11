@@ -1,6 +1,7 @@
 
 #include "renderer_wrapper.h"
 #include <iostream>
+#include <algorithm>
 #include "console_control.h"
 
 // Forward declare stb_image functions
@@ -150,6 +151,7 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
                                                             InstanceMethod("loadTiledMap", &RendererWrapper::LoadTiledMap),
     InstanceMethod("destroyTiledMap", &RendererWrapper::DestroyTiledMap),
      InstanceMethod("drawTiledMap", &RendererWrapper::DrawTiledMap),
+     InstanceMethod("getTiledCollisions", &RendererWrapper::GetTiledCollisions),
                                                        });
 
     constructor = Napi::Persistent(func);
@@ -218,8 +220,9 @@ Napi::Value RendererWrapper::DrawTiledMap(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
     
-    if (info.Length() < 3) {
-        Napi::TypeError::New(env, "Expected (mapId, bufRefId, chunked)").ThrowAsJavaScriptException();
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber() ||
+        (info.Length() > 2 && !info[2].IsBoolean())) {
+        Napi::TypeError::New(env, "Expected (mapId, bufRefId[, chunked])").ThrowAsJavaScriptException();
         return env.Undefined();
     }
     
@@ -230,6 +233,22 @@ Napi::Value RendererWrapper::DrawTiledMap(const Napi::CallbackInfo &info)
     renderer_->DrawTiledMap(mapId, bufRefId, chunked);
     
     return env.Undefined();
+}
+
+Napi::Value RendererWrapper::GetTiledCollisions(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected mapId").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    const uint32_t mapId = info[0].As<Napi::Number>().Uint32Value();
+    const std::vector<float> data = renderer_->GetTiledCollisions(mapId);
+    Napi::Float32Array result = Napi::Float32Array::New(env, data.size());
+    std::copy(data.begin(), data.end(), result.Data());
+    return result;
 }
 
 // sprite
