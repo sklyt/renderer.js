@@ -9,7 +9,7 @@ if (!renderer.initialize(800, 600, "Renderer Demo")) {
 
 // Mock Camera2D
 const camera = {
-    worldPosition: { x: 0, y: 0 },
+    worldPosition: { x: 300, y: 300 },
     targetPosition: { x: 0, y: 0 },
     velocity: { x: 0, y: 0 },
     worldZoom: 1.0,
@@ -232,7 +232,7 @@ function loop() {
     renderer.updateAnimators(delta);
     clear(50, 50, 50, canvas.data.buffer); // JS writes background
     canvas.updateCamera(camera);
-    renderer.drawTiledMap(mapId, canvas.textureId);
+    renderer.drawTiledMap(mapId, canvas.textureId, true); // C++ draws tiled map
     const buffer = canvas.getCurrentBuffer();
     const idx = (10 * canvas.width + 10) * 4;
     buffer[idx] = 255;

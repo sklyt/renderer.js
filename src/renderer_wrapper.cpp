@@ -218,15 +218,16 @@ Napi::Value RendererWrapper::DrawTiledMap(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
     
-    if (info.Length() < 2) {
-        Napi::TypeError::New(env, "Expected (mapId, bufRefId)").ThrowAsJavaScriptException();
+    if (info.Length() < 3) {
+        Napi::TypeError::New(env, "Expected (mapId, bufRefId, chunked)").ThrowAsJavaScriptException();
         return env.Undefined();
     }
     
     uint32_t mapId = info[0].As<Napi::Number>().Uint32Value();
     size_t bufRefId = info[1].As<Napi::Number>().Uint32Value();
+    bool chunked = info[2].IsBoolean() ? info[2].As<Napi::Boolean>().Value() : false;
     
-    renderer_->DrawTiledMap(mapId, bufRefId);
+    renderer_->DrawTiledMap(mapId, bufRefId, chunked);
     
     return env.Undefined();
 }

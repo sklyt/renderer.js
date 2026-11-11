@@ -7,6 +7,7 @@
 #include "input_manager.h"
 #include "audio_manager.h"
 #include <debugger.h>
+#include <algorithm>
 
 
 
@@ -540,7 +541,7 @@ TilesetLookup Renderer::FindTileset(TiledMap *map, uint32_t tileId)
 // }
 
 void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
-                               size_t bufRefId, const CameraState &cam)
+                               size_t bufRefId, const CameraState &cam, bool chunked)
 {
 
     // Get current write buffer
@@ -548,7 +549,7 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
     if (bufRefId >= shared_buffers_ref.size())
         return;
 
-    SharedBufferRefs *s = shared_buffers_ref[bufRefId];
+    SharedBufferRefs *s = shared_buffers_ref[bufRefId]; 
     if (!s || !s->control)
         return;
 
@@ -587,6 +588,75 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
         endTileY = layer->height;
 
 
+   if(chunked) {
+          // renderer.cpp - alternative implementation
+
+
+    
+    const uint32_t CHUNK_SIZE = 16;  // 16x16 tiles per chunk
+    
+    // Calculate visible chunk range
+    int32_t startChunkX = startTileX / CHUNK_SIZE;
+    int32_t endChunkX = (endTileX + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    int32_t startChunkY = startTileY / CHUNK_SIZE;
+    int32_t endChunkY = (endTileY + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    
+    // Render visible chunks
+    for (int32_t cy = startChunkY; cy < endChunkY; cy++) {
+        for (int32_t cx = startChunkX; cx < endChunkX; cx++) {
+            // Calculate tile range for this chunk
+            int32_t chunkStartX = cx * CHUNK_SIZE;
+            int32_t chunkEndX = std::min( static_cast<int32_t>(chunkStartX + CHUNK_SIZE), 
+                                         static_cast<int32_t>(layer->width));
+            int32_t chunkStartY = cy * CHUNK_SIZE;
+            int32_t chunkEndY = std::min(static_cast<int32_t>(chunkStartY + CHUNK_SIZE), 
+                                         static_cast<int32_t>(layer->height));
+            
+            // Clamp to visible range
+            if (chunkStartX < startTileX) chunkStartX = startTileX;
+            if (chunkEndX > endTileX) chunkEndX = endTileX;
+            if (chunkStartY < startTileY) chunkStartY = startTileY;
+            if (chunkEndY > endTileY) chunkEndY = endTileY;
+            
+            // Render tiles in this chunk
+            for (int32_t ty = chunkStartY; ty < chunkEndY; ty++) {
+                for (int32_t tx = chunkStartX; tx < chunkEndX; tx++) {
+                    // ... same tile rendering as before ...
+                            uint32_t tileIdx = ty * layer->width + tx;
+            uint32_t tileId = layer->data[tileIdx];
+            
+            if (tileId == 0)
+                continue;  // Empty tile
+            
+            // Find which tileset this tile belongs to
+            TilesetLookup lookup = FindTileset(map, tileId);
+            if (!lookup.tileset)
+                continue;
+            
+            // Get atlas
+            SpriteAtlas* atlas = GetAtlas(lookup.tileset->atlasId);
+            if (!atlas)
+                continue;
+            
+            // Get source rect in atlas
+            FrameRect srcRect = GetTileFrameRect(lookup.tileset, lookup.localid);
+            
+            // Calculate world position of this tile
+            float worldX = layerWorldX + tx * tileW;
+            float worldY = layerWorldY + ty * tileH;
+            
+            // Convert to screen space
+            ScreenRect screenRect = WorldToScreen(cam, worldX, worldY, tileW, tileH);
+            
+            // Blit tile (use opaque fast path - tiles are usually opaque)
+            BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
+                               atlas, srcRect, false, false);
+                }
+            }
+        }
+    
+}
+   }else{
         // Render visible tiles
     for (int32_t ty = startTileY; ty < endTileY; ty++) {
         for (int32_t tx = startTileX; tx < endTileX; tx++) {
@@ -621,6 +691,9 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
                                atlas, srcRect, false, false);
         }
     }
+   }
+
+
     
     // Mark dirty region for entire visible area
     ScreenRect visibleScreen = WorldToScreen(cam, 
@@ -653,9 +726,9 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
     }  
 }
 
+ 
 
-
-void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId)
+void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
 {
     // Get map
     TiledMap* map = GetTiledMap(mapId);
@@ -677,7 +750,7 @@ void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId)
         
         switch (layer->type) {
             case TiledLayerType::TILE:
-                RenderTileLayer(layer->tileLayer, map, bufRefId, cam);
+                RenderTileLayer(layer->tileLayer, map, bufRefId, cam, chunked);
                 break;
             
             case TiledLayerType::OBJECT:

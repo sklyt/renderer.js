@@ -409,7 +409,7 @@ public:
     TiledMap *GetTiledMap(uint32_t mapid);
     void DestroyTiledMap(uint32_t mapId);
 
-    void DrawTiledMap(uint32_t mapId, size_t bufredId);
+    void DrawTiledMap(uint32_t mapId, size_t bufredId, bool chunked = false);
 
 private:
     int width_;
@@ -460,5 +460,5 @@ private:
             tileset->tileHeight};
     };
     void RenderTileLayer(TiledTileLayer *layer, TiledMap *map, size_t bufRefId,
-                         const CameraState &cam);
+                         const CameraState &cam, bool chunked = false);
 };

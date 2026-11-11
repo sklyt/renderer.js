@@ -1,3 +1,4 @@
+
 {
     "configurations": [
         {
@@ -5,7 +6,6 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include",
-                // "/home/sk/workspace/src/raylib/src",
                 "/home/sk/.cache/node-gyp/22.22.0/include/node",
                 "/usr/include",
                 "/usr/local/include",
