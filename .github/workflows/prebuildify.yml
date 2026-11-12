@@ -92,7 +92,57 @@ jobs:
 
       - name: Generate prebuilds
         run: npx prebuildify --napi --strip
+      - name: Bundle Raylib shared library (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
 
+          ADDON="prebuilds/linux-x64/renderer.node"
+          OUTPUT="prebuilds/linux-x64"
+
+          # Find the exact Raylib SONAME required by the addon
+          SONAME=$(readelf -d "$ADDON" \
+            | grep -oE '\[libraylib\.so[^]]*\]' \
+            | tr -d '[]' \
+            | head -n1)
+
+          if [ -z "$SONAME" ]; then
+            echo "ERROR: Raylib dependency not found in renderer.node"
+            exit 1
+          fi
+
+          echo "Required library: $SONAME"
+
+          # Locate the installed Raylib library
+          sudo ldconfig
+
+          LIBRARY=$(ldconfig -p | awk -v name="$SONAME" \
+            '$1 == name {print $NF; exit}')
+
+          if [ -z "$LIBRARY" ]; then
+            echo "ERROR: Cannot locate $SONAME"
+            exit 1
+          fi
+
+          # Bundle Raylib
+          cp -L "$LIBRARY" "$OUTPUT/$SONAME"
+
+          # Configure the addon to search its own directory
+          patchelf --set-rpath '$ORIGIN' "$ADDON"
+
+          echo "Checking renderer dependencies:"
+          ldd "$ADDON"
+
+          echo "Checking bundled Raylib dependencies:"
+          ldd "$OUTPUT/$SONAME"
+
+          if ldd "$ADDON" | grep -q "not found"; then
+            echo "ERROR: Unresolved native dependencies"
+            exit 1
+          fi
+
+          echo "Raylib bundled successfully."
 
       - name: Upload prebuild artifacts
         uses: actions/upload-artifact@v4
