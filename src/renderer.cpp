@@ -9,19 +9,19 @@
 #include <debugger.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <cstring>
+#include <iterator>
 
 
 
-ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
-                         float worldW, float worldH)
+ScreenRect WorldToScreenWithCameraTransform(const CameraState &cam, float worldX,
+                                            float worldY, float worldW,
+                                            float worldH, float cosA, float sinA)
 {
     // Translate to camera space
     float dx = worldX - cam.worldX;
     float dy = worldY - cam.worldY;
-
-    // Rotate by negative camera rotation (inverse transform)
-    float cosA = cosf(-cam.rotation);
-    float sinA = sinf(-cam.rotation);
 
     float camX = dx * cosA - dy * sinA;
     float camY = dx * sinA + dy * cosA;
@@ -41,6 +41,50 @@ ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
         static_cast<uint32_t>(worldH * cam.zoom)};
 }
 
+ScreenRect WorldToScreen(const CameraState &cam, float worldX, float worldY,
+                         float worldW, float worldH)
+{
+    return WorldToScreenWithCameraTransform(
+        cam, worldX, worldY, worldW, worldH,
+        cosf(-cam.rotation), sinf(-cam.rotation));
+}
+
+
+struct NearestNeighborAxis
+{
+    uint64_t source;
+    uint64_t remainder;
+    uint64_t denominator;
+    uint64_t step;
+    uint64_t stepRemainder;
+
+    void Advance()
+    {
+        source += step;
+        remainder += stepRemainder;
+        if (remainder >= denominator)
+        {
+            remainder -= denominator;
+            ++source;
+        }
+    }
+};
+
+static NearestNeighborAxis MakeNearestNeighborAxis(uint32_t sourceExtent,
+                                                   uint32_t destinationExtent,
+                                                   uint32_t localStart)
+{
+    const uint64_t denominator = static_cast<uint64_t>(destinationExtent) * 2;
+    const uint64_t numerator =
+        (static_cast<uint64_t>(localStart) * 2 + 1) * sourceExtent;
+    const uint64_t stepNumerator = static_cast<uint64_t>(sourceExtent) * 2;
+    return {
+        numerator / denominator,
+        numerator % denominator,
+        denominator,
+        stepNumerator / denominator,
+        stepNumerator % denominator};
+}
 
 
 // Fast path: opaque, no rotation, nearest neighbor
@@ -49,6 +93,10 @@ void BlitSpriteNN_Opaque(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeig
                          const SpriteAtlas *atlas, const FrameRect &srcRect,
                          bool flipH, bool flipV)
 {
+    if (dstRect.width == 0 || dstRect.height == 0 ||
+        srcRect.w == 0 || srcRect.h == 0)
+        return;
+
     // Clamp dest rect to buffer bounds
     int32_t dstX = dstRect.x;
     int32_t dstY = dstRect.y;
@@ -83,46 +131,59 @@ void BlitSpriteNN_Opaque(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeig
 
     const uint8_t *srcData = atlas->data;
     const uint32_t srcWidth = atlas->width;
-    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
-    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+    if (srcRect.w == dstRect.width && srcRect.h == dstRect.height &&
+        !flipH && !flipV)
+    {
+        for (int32_t row = 0; row < dstH; ++row)
+        {
+            const uint32_t srcY = srcRect.y + clipTop + row;
+            const uint32_t screenY = dstY + row;
+            const size_t srcOffset =
+                (static_cast<size_t>(srcY) * srcWidth + srcRect.x + clipLeft) * 4;
+            const size_t dstOffset =
+                (static_cast<size_t>(screenY) * dstWidth + dstX) * 4;
+            std::memcpy(dstBuffer + dstOffset, srcData + srcOffset,
+                        static_cast<size_t>(dstW) * 4);
+        }
+        return;
+    }
+
+    NearestNeighborAxis sourceY =
+        MakeNearestNeighborAxis(srcRect.h, dstRect.height, clipTop);
 
     // Row-by-row blit
     for (int32_t row = 0; row < dstH; row++)
     {
         int32_t screenY = dstY + row;
-        int32_t localY = clipTop + row;
-
-        // Map to source Y
-        float srcYf = (localY + 0.5f) * scaleY;
-        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        uint32_t srcY = static_cast<uint32_t>(sourceY.source);
         if (flipV)
             srcY = (srcRect.h - 1) - srcY;
         srcY += srcRect.y;
 
-        uint32_t dstRowBase = screenY * dstWidth * 4;
-        uint32_t srcRowBase = srcY * srcWidth * 4;
+        const size_t dstRowBase = static_cast<size_t>(screenY) * dstWidth * 4;
+        const size_t srcRowBase = static_cast<size_t>(srcY) * srcWidth * 4;
+        NearestNeighborAxis sourceX =
+            MakeNearestNeighborAxis(srcRect.w, dstRect.width, clipLeft);
 
         for (int32_t col = 0; col < dstW; col++)
         {
             int32_t screenX = dstX + col;
-            int32_t localX = clipLeft + col;
-
-            // Map to source X
-            float srcXf = (localX + 0.5f) * scaleX;
-            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            uint32_t srcX = static_cast<uint32_t>(sourceX.source);
             if (flipH)
                 srcX = (srcRect.w - 1) - srcX;
             srcX += srcRect.x;
 
-            uint32_t dstIdx = dstRowBase + screenX * 4;
-            uint32_t srcIdx = srcRowBase + srcX * 4;
+            const size_t dstIdx = dstRowBase + static_cast<size_t>(screenX) * 4;
+            const size_t srcIdx = srcRowBase + static_cast<size_t>(srcX) * 4;
 
             // Direct copy (opaque, no blend)
             dstBuffer[dstIdx + 0] = srcData[srcIdx + 0]; // R
             dstBuffer[dstIdx + 1] = srcData[srcIdx + 1]; // G
             dstBuffer[dstIdx + 2] = srcData[srcIdx + 2]; // B
             dstBuffer[dstIdx + 3] = 255;                 // A
+            sourceX.Advance();
         }
+        sourceY.Advance();
     }
 }
 
@@ -132,6 +193,9 @@ void BlitSpriteNN_Alpha(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeigh
                         const SpriteAtlas *atlas, const FrameRect &srcRect,
                         bool flipH, bool flipV)
 {
+    if (dstRect.width == 0 || dstRect.height == 0 ||
+        srcRect.w == 0 || srcRect.h == 0)
+        return;
 
     int32_t dstX = dstRect.x;
     int32_t dstY = dstRect.y;
@@ -166,36 +230,33 @@ void BlitSpriteNN_Alpha(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeigh
 
     const uint8_t *srcData = atlas->data;
     const uint32_t srcWidth = atlas->width;
-    const float scaleX = static_cast<float>(srcRect.w) / dstRect.width;
-    const float scaleY = static_cast<float>(srcRect.h) / dstRect.height;
+    NearestNeighborAxis sourceY =
+        MakeNearestNeighborAxis(srcRect.h, dstRect.height, clipTop);
 
     for (int32_t row = 0; row < dstH; row++)
     {
         int32_t screenY = dstY + row;
-        int32_t localY = clipTop + row;
-
-        float srcYf = (localY + 0.5f) * scaleY;
-        uint32_t srcY = static_cast<uint32_t>(srcYf);
+        uint32_t srcY = static_cast<uint32_t>(sourceY.source);
         if (flipV)
             srcY = (srcRect.h - 1) - srcY;
         srcY += srcRect.y;
 
-        uint32_t dstRowBase = screenY * dstWidth * 4;
-        uint32_t srcRowBase = srcY * srcWidth * 4;
+        const size_t dstRowBase = static_cast<size_t>(screenY) * dstWidth * 4;
+        const size_t srcRowBase = static_cast<size_t>(srcY) * srcWidth * 4;
+        NearestNeighborAxis sourceX =
+            MakeNearestNeighborAxis(srcRect.w, dstRect.width, clipLeft);
 
         for (int32_t col = 0; col < dstW; col++)
         {
             int32_t screenX = dstX + col;
-            int32_t localX = clipLeft + col;
-
-            float srcXf = (localX + 0.5f) * scaleX;
-            uint32_t srcX = static_cast<uint32_t>(srcXf);
+            uint32_t srcX = static_cast<uint32_t>(sourceX.source);
             if (flipH)
                 srcX = (srcRect.w - 1) - srcX;
             srcX += srcRect.x;
 
-            uint32_t dstIdx = dstRowBase + screenX * 4;
-            uint32_t srcIdx = srcRowBase + srcX * 4;
+            const size_t dstIdx = dstRowBase + static_cast<size_t>(screenX) * 4;
+            const size_t srcIdx = srcRowBase + static_cast<size_t>(srcX) * 4;
+            sourceX.Advance();
 
             uint8_t sR = srcData[srcIdx + 0];
             uint8_t sG = srcData[srcIdx + 1];
@@ -232,6 +293,7 @@ void BlitSpriteNN_Alpha(uint8_t *dstBuffer, uint32_t dstWidth, uint32_t dstHeigh
             }
             // If sA == 0, skip (fully transparent)
         }
+        sourceY.Advance();
     }
 }
 
@@ -513,6 +575,8 @@ uint32_t Renderer::LoadTiledMap(const std::string &path)
                                      "' as atlas " + std::to_string(atlasId));
     }
 
+    InitializeTileRenderData(map);
+
        for (auto *layer : map->layers)
        {
            if (layer->type == TiledLayerType::OBJECT && layer->objectLayer)
@@ -719,26 +783,102 @@ TilesetLookup Renderer::FindTileset(TiledMap *map, uint32_t tileId)
     if (tileId == 0)
         return result; // Tile ID 0 = empty
 
-    // Tilesets are sorted by firstGid
-    // Find the tileset where: firstGid <= tileId < nextFirstGid
-    for (size_t i = 0; i < map->tilesets.size(); i++)
-    {
-        TiledTileset *ts = map->tilesets[i];
-
-        // Check if this is the right tileset
-        uint32_t nextGid = (i + 1 < map->tilesets.size())
-                               ? map->tilesets[i + 1]->first_gid
-                               : UINT32_MAX;
-
-        if (tileId >= ts->first_gid && tileId < nextGid)
+    const auto tileset = std::upper_bound(
+        map->tilesets.begin(), map->tilesets.end(), tileId,
+        [](uint32_t gid, const TiledTileset *candidate)
         {
-            result.tileset = ts;
-            result.localid = tileId - ts->first_gid; // Convert to 0-based
-            return result;
+            return gid < candidate->first_gid;
+        });
+    if (tileset == map->tilesets.begin())
+        return result;
+
+    result.tileset = *std::prev(tileset);
+    result.localid = tileId - result.tileset->first_gid;
+
+    return result;
+}
+
+void Renderer::InitializeTileRenderData(TiledMap *map)
+{
+    for (TiledTileset *tileset : map->tilesets)
+    {
+        SpriteAtlas *atlas = tileset->atlasId == 0 ? nullptr : GetAtlas(tileset->atlasId);
+        if (!atlas || tileset->tileWidth == 0 || tileset->tileHeight == 0)
+            continue;
+
+        if (tileset->columns == 0)
+            tileset->columns = atlas->width / tileset->tileWidth;
+        if (tileset->columns == 0)
+            continue;
+
+        tileset->frames.resize(tileset->tileCount);
+        for (uint32_t localId = 0; localId < tileset->tileCount; ++localId)
+        {
+            TiledTileFrame &frame = tileset->frames[localId];
+            const uint32_t column = localId % tileset->columns;
+            const uint32_t row = localId / tileset->columns;
+            frame.x = column * tileset->tileWidth;
+            frame.y = row * tileset->tileHeight;
+            frame.width = tileset->tileWidth;
+            frame.height = tileset->tileHeight;
+
+            if (static_cast<uint64_t>(frame.x) + frame.width > atlas->width ||
+                static_cast<uint64_t>(frame.y) + frame.height > atlas->height)
+                continue;
+
+            frame.opaque = true;
+            for (uint32_t y = 0; y < frame.height && frame.opaque; ++y)
+            {
+                const uint8_t *pixel = atlas->data +
+                    ((frame.y + y) * atlas->width + frame.x) * 4 + 3;
+                for (uint32_t x = 0; x < frame.width; ++x, pixel += 4)
+                {
+                    if (*pixel != 255)
+                    {
+                        frame.opaque = false;
+                        break;
+                    }
+                }
+            }
         }
     }
 
-    return result;
+    for (TiledLayer *layer : map->layers)
+    {
+        if (layer->type != TiledLayerType::TILE || !layer->tileLayer)
+            continue;
+
+        TiledTileLayer *tileLayer = layer->tileLayer;
+        const size_t cellCount =
+            static_cast<size_t>(tileLayer->width) * tileLayer->height;
+        tileLayer->renderInfo.resize(std::min(tileLayer->dataCount, cellCount));
+
+        for (size_t index = 0; index < tileLayer->renderInfo.size(); ++index)
+        {
+            const uint32_t encodedGid = tileLayer->data[index];
+            const uint32_t tileId = encodedGid & 0x0FFFFFFFu;
+            if (tileId == 0)
+                continue;
+
+            const TilesetLookup lookup = FindTileset(map, tileId);
+            if (!lookup.tileset || lookup.tileset->atlasId == 0 ||
+                lookup.localid >= lookup.tileset->frames.size())
+                continue;
+
+            const TiledTileFrame &frame = lookup.tileset->frames[lookup.localid];
+            SpriteAtlas *atlas = GetAtlas(lookup.tileset->atlasId);
+            if (!atlas || frame.width == 0 || frame.height == 0 ||
+                static_cast<uint64_t>(frame.x) + frame.width > atlas->width ||
+                static_cast<uint64_t>(frame.y) + frame.height > atlas->height)
+                continue;
+
+            TiledTileRenderInfo &info = tileLayer->renderInfo[index];
+            info.atlasId = lookup.tileset->atlasId;
+            info.frame = frame;
+            info.flipH = (encodedGid & 0x80000000u) != 0;
+            info.flipV = (encodedGid & 0x40000000u) != 0;
+        }
+    }
 }
 
 
@@ -784,24 +924,47 @@ TilesetLookup Renderer::FindTileset(TiledMap *map, uint32_t tileId)
 //     }
 // }
 
-void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
-                               size_t bufRefId, const CameraState &cam, bool chunked)
+TileRenderMetrics Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
+                                            size_t bufRefId, const CameraState &cam,
+                                            float inverseCameraCos,
+                                            float inverseCameraSin,
+                                            bool chunked, bool measure)
 {
+    TileRenderMetrics metrics;
+    if (!layer || !map || !layer->data || map->tileWidth == 0 ||
+        map->tileHeight == 0 || layer->width == 0 || layer->height == 0)
+        return metrics;
+
+    const auto layerStart = measure ? std::chrono::steady_clock::now()
+                                    : std::chrono::steady_clock::time_point{};
+    const auto elapsedNanoseconds = [](const auto &start)
+    {
+        return static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - start)
+                .count());
+    };
 
     // Get current write buffer
     std::lock_guard<std::mutex> lock(buffers_mutex_);
     if (bufRefId >= shared_buffers_ref.size())
-        return;
+        return metrics;
 
     SharedBufferRefs *s = shared_buffers_ref[bufRefId]; 
     if (!s || !s->control)
-        return;
+        return metrics;
 
     std::atomic<uint32_t> *ctrl = reinterpret_cast<std::atomic<uint32_t> *>(s->control);
     uint32_t js_write = ctrl[CTRL_JS_WRITE_IDX].load(std::memory_order_acquire);
+    if (js_write >= 3 || !s->pixel_buffers[js_write])
+        return metrics;
     uint8_t *dstBuffer = s->pixel_buffers[js_write];
+    uint32_t cachedAtlasId = 0;
+    SpriteAtlas *cachedAtlas = nullptr;
 
     // Layer offset in world space
+    const auto rangeStart = measure ? std::chrono::steady_clock::now()
+                                    : std::chrono::steady_clock::time_point{};
     float layerWorldX = static_cast<float>(layer->offsetX);
     float layerWorldY = static_cast<float>(layer->offsetY);
 
@@ -831,124 +994,125 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
     if (endTileY > static_cast<int32_t>(layer->height))
         endTileY = layer->height;
 
+    if (measure)
+        metrics.rangeNanoseconds = elapsedNanoseconds(rangeStart);
 
-   if(chunked) {
-          // renderer.cpp - alternative implementation
+    const auto renderTile = [&](uint32_t tx, uint32_t ty)
+    {
+        ++metrics.scannedCells;
+        const size_t tileIndex = static_cast<size_t>(ty) * layer->width + tx;
+        if (tileIndex >= layer->renderInfo.size())
+            return;
 
+        ++metrics.nonEmptyTiles;
+        const auto tilesetLookupStart = measure ? std::chrono::steady_clock::now()
+                                                : std::chrono::steady_clock::time_point{};
+        const TiledTileRenderInfo &info = layer->renderInfo[tileIndex];
+        if (measure)
+            metrics.tilesetLookupNanoseconds += elapsedNanoseconds(tilesetLookupStart);
+        if (info.atlasId == 0)
+            return;
 
-    
-    const uint32_t CHUNK_SIZE = 16;  // 16x16 tiles per chunk
-    
-    // Calculate visible chunk range
-    int32_t startChunkX = startTileX / CHUNK_SIZE;
-    int32_t endChunkX = (endTileX + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    int32_t startChunkY = startTileY / CHUNK_SIZE;
-    int32_t endChunkY = (endTileY + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    
-    // Render visible chunks
-    for (int32_t cy = startChunkY; cy < endChunkY; cy++) {
-        for (int32_t cx = startChunkX; cx < endChunkX; cx++) {
-            // Calculate tile range for this chunk
-            int32_t chunkStartX = cx * CHUNK_SIZE;
-            int32_t chunkEndX = std::min( static_cast<int32_t>(chunkStartX + CHUNK_SIZE), 
-                                         static_cast<int32_t>(layer->width));
-            int32_t chunkStartY = cy * CHUNK_SIZE;
-            int32_t chunkEndY = std::min(static_cast<int32_t>(chunkStartY + CHUNK_SIZE), 
-                                         static_cast<int32_t>(layer->height));
-            
-            // Clamp to visible range
-            if (chunkStartX < startTileX) chunkStartX = startTileX;
-            if (chunkEndX > endTileX) chunkEndX = endTileX;
-            if (chunkStartY < startTileY) chunkStartY = startTileY;
-            if (chunkEndY > endTileY) chunkEndY = endTileY;
-            
-            // Render tiles in this chunk
-            for (int32_t ty = chunkStartY; ty < chunkEndY; ty++) {
-                for (int32_t tx = chunkStartX; tx < chunkEndX; tx++) {
-                    // ... same tile rendering as before ...
-                            uint32_t tileIdx = ty * layer->width + tx;
-            uint32_t tileId = layer->data[tileIdx];
-            
-            if (tileId == 0)
-                continue;  // Empty tile
-            
-            // Find which tileset this tile belongs to
-            TilesetLookup lookup = FindTileset(map, tileId);
-            if (!lookup.tileset)
-                continue;
-            
-            // Get atlas
-            SpriteAtlas* atlas = GetAtlas(lookup.tileset->atlasId);
-            if (!atlas)
-                continue;
-            
-            // Get source rect in atlas
-            FrameRect srcRect = GetTileFrameRect(lookup.tileset, lookup.localid);
-            
-            // Calculate world position of this tile
-            float worldX = layerWorldX + tx * tileW;
-            float worldY = layerWorldY + ty * tileH;
-            
-            // Convert to screen space
-            ScreenRect screenRect = WorldToScreen(cam, worldX, worldY, tileW, tileH);
-            
-            // Blit tile (use opaque fast path - tiles are usually opaque)
+        if (info.atlasId != cachedAtlasId)
+        {
+            const auto atlasLookupStart = measure ? std::chrono::steady_clock::now()
+                                                 : std::chrono::steady_clock::time_point{};
+            cachedAtlasId = info.atlasId;
+            cachedAtlas = GetAtlas(info.atlasId);
+            if (measure)
+                metrics.atlasLookupNanoseconds += elapsedNanoseconds(atlasLookupStart);
+        }
+        if (!cachedAtlas)
+            return;
+
+        const FrameRect srcRect = {
+            info.frame.x, info.frame.y, info.frame.width, info.frame.height};
+        const float worldX = layerWorldX + tx * tileW;
+        const float worldY = layerWorldY + ty * tileH;
+        const ScreenRect screenRect = WorldToScreenWithCameraTransform(
+            cam, worldX, worldY, tileW, tileH,
+            inverseCameraCos, inverseCameraSin);
+
+        const auto blitStart = measure ? std::chrono::steady_clock::now()
+                                       : std::chrono::steady_clock::time_point{};
+        if (info.frame.opaque)
+        {
             BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
-                               atlas, srcRect, false, false);
-                }
+                                cachedAtlas, srcRect, info.flipH, info.flipV);
+        }
+        else
+        {
+            BlitSpriteNN_Alpha(dstBuffer, s->width, s->height, screenRect,
+                               cachedAtlas, srcRect, info.flipH, info.flipV);
+        }
+        if (measure)
+            metrics.blitNanoseconds += elapsedNanoseconds(blitStart);
+        ++metrics.renderedTiles;
+    };
+    const auto renderRowRange = [&](uint32_t y, int32_t startX, int32_t endX)
+    {
+        if (startX >= endX || y >= layer->nonEmptyTilesByRow.size())
+            return;
+
+        const std::vector<uint32_t> &nonEmptyX = layer->nonEmptyTilesByRow[y];
+        auto tile = std::lower_bound(
+            nonEmptyX.begin(), nonEmptyX.end(), static_cast<uint32_t>(startX));
+        for (; tile != nonEmptyX.end() && *tile < static_cast<uint32_t>(endX); ++tile)
+            renderTile(*tile, y);
+    };
+
+    if (chunked)
+    {
+        const int32_t startChunkX = startTileX / TILED_RENDER_CHUNK_SIZE;
+        const int32_t endChunkX =
+            (endTileX + TILED_RENDER_CHUNK_SIZE - 1) / TILED_RENDER_CHUNK_SIZE;
+        const int32_t startChunkY = startTileY / TILED_RENDER_CHUNK_SIZE;
+        const int32_t endChunkY =
+            (endTileY + TILED_RENDER_CHUNK_SIZE - 1) / TILED_RENDER_CHUNK_SIZE;
+
+        for (int32_t cy = startChunkY; cy < endChunkY; ++cy)
+        {
+            for (int32_t cx = startChunkX; cx < endChunkX; ++cx)
+            {
+                const size_t chunkIndex =
+                    static_cast<size_t>(cy) * layer->chunkColumns + cx;
+                if (chunkIndex >= layer->nonEmptyChunks.size() ||
+                    layer->nonEmptyChunks[chunkIndex] == 0)
+                    continue;
+
+                const int32_t chunkStartX = std::max(
+                    startTileX, cx * static_cast<int32_t>(TILED_RENDER_CHUNK_SIZE));
+                const int32_t chunkEndX = std::min(
+                    endTileX, (cx + 1) * static_cast<int32_t>(TILED_RENDER_CHUNK_SIZE));
+                const int32_t chunkStartY = std::max(
+                    startTileY, cy * static_cast<int32_t>(TILED_RENDER_CHUNK_SIZE));
+                const int32_t chunkEndY = std::min(
+                    endTileY, (cy + 1) * static_cast<int32_t>(TILED_RENDER_CHUNK_SIZE));
+
+                for (int32_t y = chunkStartY; y < chunkEndY; ++y)
+                    renderRowRange(static_cast<uint32_t>(y), chunkStartX, chunkEndX);
             }
         }
-    
-}
-   }else{
-        // Render visible tiles
-    for (int32_t ty = startTileY; ty < endTileY; ty++) {
-        for (int32_t tx = startTileX; tx < endTileX; tx++) {
-            uint32_t tileIdx = ty * layer->width + tx;
-            uint32_t tileId = layer->data[tileIdx];
-            
-            if (tileId == 0)
-                continue;  // Empty tile
-            
-            // Find which tileset this tile belongs to
-            TilesetLookup lookup = FindTileset(map, tileId);
-            if (!lookup.tileset)
-                continue;
-            
-            // Get atlas
-            SpriteAtlas* atlas = GetAtlas(lookup.tileset->atlasId);
-            if (!atlas)
-                continue;
-            
-            // Get source rect in atlas
-            FrameRect srcRect = GetTileFrameRect(lookup.tileset, lookup.localid);
-            
-            // Calculate world position of this tile
-            float worldX = layerWorldX + tx * tileW;
-            float worldY = layerWorldY + ty * tileH;
-            
-            // Convert to screen space
-            ScreenRect screenRect = WorldToScreen(cam, worldX, worldY, tileW, tileH);
-            
-            // Blit tile (use opaque fast path - tiles are usually opaque)
-            BlitSpriteNN_Opaque(dstBuffer, s->width, s->height, screenRect,
-                               atlas, srcRect, false, false);
-        }
     }
-   }
+    else
+    {
+        for (int32_t y = startTileY; y < endTileY; ++y)
+            renderRowRange(static_cast<uint32_t>(y), startTileX, endTileX);
+    }
 
-
-    
-    // Mark dirty region for entire visible area
-    ScreenRect visibleScreen = WorldToScreen(cam, 
-        layerWorldX + startTileX * tileW, 
-        layerWorldY + startTileY * tileH,
-        (endTileX - startTileX) * tileW,
-        (endTileY - startTileY) * tileH);
-    
+    const auto dirtyRegionStart = measure ? std::chrono::steady_clock::now()
+                                          : std::chrono::steady_clock::time_point{};
     uint32_t dirty_count = ctrl[CTRL_DIRTY_COUNT].load(std::memory_order_acquire);
     
-    if (dirty_count < MAX_DIRTY_REGIONS) {
+    if (dirty_count < MAX_DIRTY_REGIONS)
+    {
+        ScreenRect visibleScreen = WorldToScreenWithCameraTransform(
+            cam,
+            layerWorldX + startTileX * tileW,
+            layerWorldY + startTileY * tileH,
+            (endTileX - startTileX) * tileW,
+            (endTileY - startTileY) * tileH,
+            inverseCameraCos, inverseCameraSin);
         uint32_t offset = CTRL_DIRTY_REGIONS + (dirty_count * 4);
         
         int32_t rx = visibleScreen.x < 0 ? 0 : visibleScreen.x;
@@ -967,13 +1131,24 @@ void Renderer::RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
         ctrl[offset + 3] = rh;
         
         ctrl[CTRL_DIRTY_COUNT].store(dirty_count + 1, std::memory_order_release);
-    }  
+    }
+
+    if (measure)
+    {
+        metrics.dirtyRegionNanoseconds = elapsedNanoseconds(dirtyRegionStart);
+        metrics.tileLayerNanoseconds = elapsedNanoseconds(layerStart);
+    }
+
+    return metrics;
 }
 
  
 
 void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
 {
+    const bool measureTiles = tileRenderInstrumentation_.IsEnabled();
+    const auto mapDrawStart = measureTiles ? std::chrono::steady_clock::now()
+                                           : std::chrono::steady_clock::time_point{};
     TiledMap *map = GetTiledMap(mapId);
     if (!map)
         return;
@@ -981,6 +1156,9 @@ void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
     ProcessPendingRegions(bufRefId);
 
     const CameraState cam = GetCameraState(bufRefId);
+    const float inverseCameraCos = cosf(-cam.rotation);
+    const float inverseCameraSin = sinf(-cam.rotation);
+    TileRenderMetrics frameMetrics;
     for (TiledLayer *layer : map->layers)
     {
         if (!layer->visible)
@@ -989,7 +1167,9 @@ void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
         switch (layer->type)
         {
             case TiledLayerType::TILE:
-                RenderTileLayer(layer->tileLayer, map, bufRefId, cam, chunked);
+                frameMetrics += RenderTileLayer(
+                    layer->tileLayer, map, bufRefId, cam,
+                    inverseCameraCos, inverseCameraSin, chunked, measureTiles);
                 break;
 
             case TiledLayerType::OBJECT:
@@ -1000,6 +1180,20 @@ void Renderer::DrawTiledMap(uint32_t mapId, size_t bufRefId, bool chunked)
                 break;
         }
     }
+
+    if (measureTiles)
+    {
+        frameMetrics.mapDrawNanoseconds = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - mapDrawStart)
+                .count());
+        tileRenderInstrumentation_.RecordFrame(frameMetrics);
+    }
+}
+
+void Renderer::InitializeTileInstrumentation(uint32_t reportIntervalFrames)
+{
+    tileRenderInstrumentation_.Initialize(reportIntervalFrames);
 }
 
 void Renderer::InitializeObjectLayer(TiledObjectLayer *objLayer, TiledMap *map)
@@ -1039,6 +1233,10 @@ void Renderer::InitializeObjectLayer(TiledObjectLayer *objLayer, TiledMap *map)
         AnimatedSprite *sprite = GetSprite(spriteId);
         if (sprite) {
             sprite->currentFrame = lookup.localid;
+            if (lookup.tileset->columns != 0)
+                sprite->framesPerRow = lookup.tileset->columns;
+            if (lookup.localid < lookup.tileset->frames.size())
+                sprite->opaque = lookup.tileset->frames[lookup.localid].opaque;
         }
 
         TiledObjectInstance instance;

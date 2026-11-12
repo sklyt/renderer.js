@@ -18,6 +18,7 @@ public:
     Napi::Value DestroyTiledMap(const Napi::CallbackInfo &info);
     Napi::Value DrawTiledMap(const Napi::CallbackInfo &info);
         Napi::Value GetTiledCollisions(const Napi::CallbackInfo &info);
+    Napi::Value InitializeTileInstrumentation(const Napi::CallbackInfo &info);
     // Core lifecycle
     Napi::Value Initialize(const Napi::CallbackInfo &info);
     Napi::Value Shutdown(const Napi::CallbackInfo &info);

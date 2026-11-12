@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include "tiled.h"
+#include "tile_render_instrumentation.h"
 
 // Forward declare stbi_image_free to avoid including the full stb_image.h here
 extern "C" void stbi_image_free(void *retval_from_stbi_load);
@@ -410,6 +411,7 @@ public:
     void DestroyTiledMap(uint32_t mapId);
     void MergeCollisionBoxes(std::vector<CollisionShape> &shapes);
     std::vector<float> GetTiledCollisions(uint32_t mapId);
+    void InitializeTileInstrumentation(uint32_t reportIntervalFrames);
 
     void DrawTiledMap(uint32_t mapId, size_t bufredId, bool chunked = false);
     void InitializeObjectLayer(TiledObjectLayer *layer, TiledMap *map);
@@ -453,19 +455,12 @@ private:
     std::unordered_map<uint32_t, TiledMap *> tiledMaps_;
     uint32_t next_tiled_map_id_ = 1;
     std::mutex tiled_mutex_;
+    TileRenderInstrumentation tileRenderInstrumentation_;
 
+    void InitializeTileRenderData(TiledMap *map);
     TilesetLookup FindTileset(TiledMap *map, uint32_t tileId);
-    FrameRect GetTileFrameRect(TiledTileset *tileset, uint32_t localId)
-    {
-        uint32_t col = localId % tileset->columns;
-        uint32_t row = localId / tileset->columns;
-
-        return {
-            col * tileset->tileWidth,
-            row * tileset->tileHeight,
-            tileset->tileWidth,
-            tileset->tileHeight};
-    };
-    void RenderTileLayer(TiledTileLayer *layer, TiledMap *map, size_t bufRefId,
-                         const CameraState &cam, bool chunked = false);
+    TileRenderMetrics RenderTileLayer(TiledTileLayer *layer, TiledMap *map,
+                                      size_t bufRefId, const CameraState &cam,
+                                      float inverseCameraCos, float inverseCameraSin,
+                                      bool chunked, bool measure);
 };

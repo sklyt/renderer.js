@@ -1,5 +1,6 @@
 #include "tiled.h"
 #include "debugger.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -87,10 +88,40 @@ static TiledTileLayer *ParseTileLayer(const rapidjson::Value &layer)
         size_t count = data.Size();
 
         tileLayer->data = new uint32_t[count];
+        tileLayer->dataCount = count;
 
         for (rapidjson::SizeType i = 0; i < count; i++)
         {
             tileLayer->data[i] = data[i].GetUint();
+        }
+    }
+
+    tileLayer->nonEmptyTilesByRow.resize(tileLayer->height);
+    tileLayer->chunkColumns =
+        (tileLayer->width + TILED_RENDER_CHUNK_SIZE - 1) / TILED_RENDER_CHUNK_SIZE;
+    const uint32_t chunkRows =
+        (tileLayer->height + TILED_RENDER_CHUNK_SIZE - 1) / TILED_RENDER_CHUNK_SIZE;
+    tileLayer->nonEmptyChunks.resize(
+        static_cast<size_t>(tileLayer->chunkColumns) * chunkRows);
+
+    if (tileLayer->width != 0)
+    {
+        const size_t layerCellCount =
+            static_cast<size_t>(tileLayer->width) * tileLayer->height;
+        const size_t indexedCellCount = std::min(tileLayer->dataCount, layerCellCount);
+        for (size_t index = 0; index < indexedCellCount; ++index)
+        {
+            if (tileLayer->data[index] == 0)
+                continue;
+
+            const uint32_t x = static_cast<uint32_t>(index % tileLayer->width);
+            const uint32_t y = static_cast<uint32_t>(index / tileLayer->width);
+            tileLayer->nonEmptyTilesByRow[y].push_back(x);
+            const size_t chunkIndex =
+                static_cast<size_t>(y / TILED_RENDER_CHUNK_SIZE) *
+                    tileLayer->chunkColumns +
+                x / TILED_RENDER_CHUNK_SIZE;
+            tileLayer->nonEmptyChunks[chunkIndex] = 1;
         }
     }
 

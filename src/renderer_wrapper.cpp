@@ -2,6 +2,7 @@
 #include "renderer_wrapper.h"
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 #include "console_control.h"
 
 // Forward declare stb_image functions
@@ -152,6 +153,7 @@ Napi::Object RendererWrapper::Init(Napi::Env env, Napi::Object exports)
     InstanceMethod("destroyTiledMap", &RendererWrapper::DestroyTiledMap),
      InstanceMethod("drawTiledMap", &RendererWrapper::DrawTiledMap),
      InstanceMethod("getTiledCollisions", &RendererWrapper::GetTiledCollisions),
+     InstanceMethod("initTileInstrumentation", &RendererWrapper::InitializeTileInstrumentation),
                                                        });
 
     constructor = Napi::Persistent(func);
@@ -249,6 +251,30 @@ Napi::Value RendererWrapper::GetTiledCollisions(const Napi::CallbackInfo &info)
     Napi::Float32Array result = Napi::Float32Array::New(env, data.size());
     std::copy(data.begin(), data.end(), result.Data());
     return result;
+}
+
+Napi::Value RendererWrapper::InitializeTileInstrumentation(
+    const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected reportIntervalFrames")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    const double interval = info[0].As<Napi::Number>().DoubleValue();
+    if (!std::isfinite(interval) || interval < 1.0 || interval > UINT32_MAX ||
+        interval != static_cast<uint32_t>(interval))
+    {
+        Napi::RangeError::New(env, "reportIntervalFrames must be a positive integer")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    renderer_->InitializeTileInstrumentation(static_cast<uint32_t>(interval));
+    return env.Undefined();
 }
 
 // sprite

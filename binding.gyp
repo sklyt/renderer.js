@@ -6,6 +6,7 @@
         "src/addon.cpp", 
         "src/renderer.cpp", 
         "src/renderer_wrapper.cpp", 
+        "src/tile_render_instrumentation.cpp",
         "src/input_manager.cpp", 
         "src/debug/debugger_wrapper.cpp",
         "src/debug/debugger.cpp",

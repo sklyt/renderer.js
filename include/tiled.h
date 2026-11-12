@@ -10,6 +10,25 @@
 #include <cstdint>
 #include <unordered_map>
 
+inline constexpr uint32_t TILED_RENDER_CHUNK_SIZE = 16;
+
+struct TiledTileFrame
+{
+    uint32_t x = 0;
+    uint32_t y = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    bool opaque = false;
+};
+
+struct TiledTileRenderInfo
+{
+    uint32_t atlasId = 0;
+    TiledTileFrame frame;
+    bool flipH = false;
+    bool flipV = false;
+};
+
 // images and their range(gid- first gid to next gid, if a data point is in this range in a layer we read from this image, then use the gid to find the exact spot in that image)
 struct TiledTileset
 {
@@ -21,6 +40,7 @@ struct TiledTileset
     uint32_t columns; // Tiles per row in atlas
     std::string name;
     std::string imagePath; // Relative path from map file
+    std::vector<TiledTileFrame> frames;
 };
 
 enum class TiledLayerType
@@ -37,12 +57,17 @@ struct TiledTileLayer
     uint32_t width;
     uint32_t height;
     uint32_t *data; // array of tile IDs (width * height) point ot tileset
+    size_t dataCount = 0;
+    std::vector<TiledTileRenderInfo> renderInfo;
+    std::vector<std::vector<uint32_t>> nonEmptyTilesByRow;
+    std::vector<uint8_t> nonEmptyChunks;
+    uint32_t chunkColumns = 0;
 
     int32_t offsetX;
     int32_t offsetY;
     bool visible;
 
-    TiledTileLayer() : data(nullptr), width(0), height(0), offsetX(0), offsetY(0), visible(true) {}
+    TiledTileLayer() : width(0), height(0), data(nullptr), offsetX(0), offsetY(0), visible(true) {}
 
     ~TiledTileLayer()
     {
@@ -158,6 +183,10 @@ struct TiledMap{
             delete layer; // trigger clean up(destructor)
         }
         layers.clear();
+        for (auto* tileset : tilesets) {
+            delete tileset;
+        }
+        tilesets.clear();
     }
 };
 
